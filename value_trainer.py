@@ -67,9 +67,9 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
 def train_v_dict(eval_model:model.ChessModel):
     eval_model.cuda().train()
 
-    learning_params     = [{"name":"Train1","ep":20,"lr":.0001,"betas":(.5,.75),"bs":4096,"trainset":(450,50)},
-                           {"name":"Train2","ep":10,"lr":.0002,"betas":(.5,.9),"bs":4096,"trainset":(350,50)},
-                           {"name":"Train3","ep":5,"lr":.0005,"betas":(.5,.99),"bs":2048,"trainset":(200,20)}]
+    learning_params     = [{"name":"Train1","ep":20,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(150,50)},
+                           {"name":"Train2","ep":10,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(350,50)},
+                           {"name":"Train3","ep":5,"lr":.0002,"betas":(.5,.99),"bs":2048,"trainset":(200,20)}]
     #Track training
     train_losses        = [] 
     test_losses         = [] 
@@ -86,9 +86,11 @@ def train_v_dict(eval_model:model.ChessModel):
         #Run training with params 
         for ep_num in range(param_set['ep']):
             
+
             #TRAIN
             eval_model.train()
             train_loss_sum  = 0
+            checkpoints     = [int(len(trainset)*.2*n) for n in range(5)]
             for batch_num,batch in enumerate(trainset):
                 
                 #Zero
@@ -109,6 +111,12 @@ def train_v_dict(eval_model:model.ChessModel):
                 #Update params
                 optim.step()
 
+                
+            
+
+
+                
+
             train_losses.append(train_loss_sum/batch_num)
 
 
@@ -116,6 +124,7 @@ def train_v_dict(eval_model:model.ChessModel):
             eval_model.eval()
             with torch.no_grad():
                 test_loss_sum       = 0
+                checkpoints     = [int(len(trainset)*.2*n) for n in range(5)]
                 for batch_num,batch in enumerate(testset):
                     
                     #Load data
@@ -123,11 +132,21 @@ def train_v_dict(eval_model:model.ChessModel):
                     eval                = batch[1].cuda().unsqueeze(dim=1)
 
                     #Get eval
-                    p,ai_eval             = eval_model.forward(positions)
+                    p,ai_eval           = eval_model.forward(positions)
 
                     #Check error
-                    test_loss_sum       += loss_fn(eval,ai_eval).cpu().item()
+                    test_loss_part      = loss_fn(eval,ai_eval).cpu().item()
+                    test_loss_sum       += test_loss_part
+
+                   
+
+
                 test_losses.append(test_loss_sum/batch_num)
+            
+            print(f"\t\t\t[{ep_num}/{param_set['ep']}]\ttrainerr: {train_losses[-1].detach().cpu().item():.3f}\ttesterr: {test_losses[-1]:.3f}\t[{eval[0].detach().cpu().item():.2f}->{ai_eval[0].detach().cpu().item():.2f}]")
+
+            
+            
 
     print(f"training complete")
     plt.plot([item.detach().cpu().numpy() for item in train_losses],label='train losses',color='orange')

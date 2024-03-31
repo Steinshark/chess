@@ -8,6 +8,10 @@ import json
 import time
 DATAPATH        = "C:/data/chess/mcts_train"
 
+for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
+    if not os.path.exists(path):
+        os.mkdir(path)
+
 
 
 def generate_data(n_games,n_iters):
