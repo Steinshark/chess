@@ -67,9 +67,19 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
 def train_v_dict(eval_model:model.ChessModel):
     eval_model.cuda().train()
 
-    learning_params     = [{"name":"Train1","ep":20,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(150,50)},
-                           {"name":"Train2","ep":10,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(350,50)},
-                           {"name":"Train3","ep":5,"lr":.0002,"betas":(.5,.99),"bs":2048,"trainset":(200,20)}]
+    learning_params     = [{"name":"Train1_0","ep":1,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(32,8)},
+                           {"name":"Train1_1","ep":1,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(32,8)},
+                           {"name":"Train1_2","ep":1,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(32,8)},
+                           {"name":"Train1_3","ep":1,"lr":.00002,"betas":(.5,.75),"bs":4096,"trainset":(32,8)},
+                           
+                           {"name":"Train2_0","ep":1,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(128,16)},
+                           {"name":"Train2_1","ep":1,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(128,16)},
+                           {"name":"Train2_2","ep":1,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(128,16)},
+                           {"name":"Train2_3","ep":1,"lr":.0001,"betas":(.5,.9),"bs":4096,"trainset":(128,16)},
+
+                           {"name":"Train3_0","ep":1,"lr":.0002,"betas":(.5,.999),"bs":1024,"trainset":(16,4)},
+                           {"name":"Train3_1","ep":1,"lr":.0002,"betas":(.5,.999),"bs":1024,"trainset":(16,4)}]
+    
     #Track training
     train_losses        = [] 
     test_losses         = [] 
@@ -81,7 +91,7 @@ def train_v_dict(eval_model:model.ChessModel):
         loss_fn             = torch.nn.MSELoss()
 
         #Generate data
-        trainset,testset    = build_dataset("C:/data/chess/exps",bs=param_set['bs'],train_size=param_set['trainset'][0],test_size=param_set['trainset'][1])
+        trainset,testset    = build_dataset("C:/gitrepos/chess/exps",bs=param_set['bs'],train_size=param_set['trainset'][0],test_size=param_set['trainset'][1])
 
         #Run training with params 
         for ep_num in range(param_set['ep']):
