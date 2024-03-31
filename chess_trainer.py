@@ -7,6 +7,9 @@ import os
 import json
 import time
 import torch
+import sys 
+
+
 DATAPATH        = "C:/data/chess/mcts_train"
 
 for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
@@ -15,7 +18,7 @@ for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
 
 
 
-def generate_data(n_games,n_iters):
+def generate_data(n_games,n_iters,uid):
 
     #Ensure training consistent
     random.seed(512)
@@ -23,10 +26,10 @@ def generate_data(n_games,n_iters):
 
     data    = []
 
-    for _ in range(n_games):
+    for game_i in range(n_games):
 
-        tree                = MCTree()
-        result              = None
+        tree                = MCTree(verbose= bool(game_i == 0),max_game=160)
+        result              = None 
         game_experiences    = []
         while result is None:
 
@@ -50,13 +53,15 @@ def generate_data(n_games,n_iters):
         
     #Get file to save to 
     offset  = len([int(file) for file in os.listdir(DATAPATH)])
-    print(f"saving to {os.path.join(DATAPATH,str(offset))}")
-    with open(os.path.join(DATAPATH,str(offset)),'w') as file:
+    print(f"saving to {os.path.join(DATAPATH,uid+"_"+str(offset))}")
+    with open(os.path.join(DATAPATH,uid+"_"+str(offset)),'w') as file:
         file.write(json.dumps(data))
 
 if __name__ == "__main__":
+
+    uid     = "".join([str(random.randint(0,9)) for _ in range(5)])
     while True:
         t0  = time.time()
-        n_games     = 25
-        generate_data(n_games,n_iters=1000)
+        n_games     = 1
+        generate_data(n_games,1000,uid)
         print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game")

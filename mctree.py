@@ -8,7 +8,7 @@ import value_trainer
 
 class MCTree:
 
-    def __init__(self,from_fen="",max_game=20):
+    def __init__(self,from_fen="",max_game=160,verbose=False):
         if from_fen:
             self.board          = chess.Board(fen=from_fen)
         else:
@@ -20,9 +20,11 @@ class MCTree:
         self.chess_model        = model.ChessModel(15).cuda()
         try:
             self.chess_model.load_state_dict(torch.load("chessmodelparams.pt"))
-            print(f"\tloaded model")
+            if verbose:
+                print(f"\tloaded model")
         except FileNotFoundError:
-            print(f"\tTraining V model")
+            if verbose:
+                print(f"\tTraining V model")
             value_trainer.train_v_dict(self.chess_model)
         self.chess_model.eval().half()
 
