@@ -1,6 +1,5 @@
 import chess
 import torch
-import math 
 import chess_utils
 import numpy 
 import sys

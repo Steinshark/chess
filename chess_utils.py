@@ -6,7 +6,7 @@ import json
 
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
-CHESSMOVES      = json.loads(open("C:/gitrepos/chess/chessmoves.txt","r").read())
+CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
 MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
 I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
@@ -107,32 +107,6 @@ def temp_scheduler(ply:int):
         return 1
     else:
         return max(1 - .02*(ply - 10),.01)
-
-#Faster all at once?
-def tester(bs=64):
-    fens    = [item[0] for item in json.loads(open("C:/data/chess/exps/877").read())][:1024]
-    t0      = time.time()
-
-    #Try many small
-    for fen in fens:
-        
-        tsor    = fen_to_tensor(fen).to(torch.device('cuda'))
-        tsor2   = tsor * -1
-    
-    print(f"ran 1 in {(time.time()-t0):.2f}s\t to run 1M->({10*1024*(time.time()-t0)/3600}hr)")
-
-
-    fens    = [item[0] for item in json.loads(open("C:/data/chess/exps/877").read())][:1024]
-    t0      = time.time()
-
-    #Try many small
-    for i in range(int(1024/bs)):
-        fenlist     = fens[i*bs:(i+1)*bs]
-        tsor    = batched_fen_to_tensor(fenlist).to(torch.device('cuda'))
-        tsor2   = tsor * -1
-    
-    print(f"ran 2 in {(time.time()-t0):.2f}s\t to run 1M->({10*1024*(time.time()-t0)/3600}hr)")
-
 
 if __name__ == "__main__":
     from matplotlib import pyplot 

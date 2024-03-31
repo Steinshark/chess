@@ -1,5 +1,4 @@
 import chess_utils 
-import math 
 import random 
 import chess
 from mctree import MCTree
@@ -10,7 +9,7 @@ import torch
 import sys 
 
 
-DATAPATH        = "C:/data/chess/mcts_train"
+DATAPATH        = "data/mcts_train"
 
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
@@ -18,7 +17,7 @@ if sys.argv and "--cpu" in sys.argv:
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
+for path in ["data","data/mcts_train"]:
     if not os.path.exists(path):
         os.mkdir(path)
 
@@ -66,3 +65,4 @@ if __name__ == "__main__":
         n_games     = 4
         generate_data(n_games,1000,uid)
         print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game")
+
