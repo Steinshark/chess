@@ -19,11 +19,6 @@ for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
 
 
 def generate_data(n_games,n_iters,uid):
-
-    #Ensure training consistent
-    random.seed(512)
-    torch.manual_seed(512)
-
     data    = []
 
     for game_i in range(n_games):
@@ -62,6 +57,6 @@ if __name__ == "__main__":
     uid     = "".join([str(random.randint(0,9)) for _ in range(5)])
     while True:
         t0  = time.time()
-        n_games     = 1
+        n_games     = 2
         generate_data(n_games,1000,uid)
         print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game")
