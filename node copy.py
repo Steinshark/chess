@@ -97,19 +97,18 @@ class Node:
         return f"{self.get_score():.3f}"
     
 
-    def run_rollout(self,board:chess.Board,model:torch.nn.Module,lookup_dict,moves):
+    def run_rollout(self,board:chess.Board,model:torch.nn.Module,lookup_dict):
         board_fen   = board.fen()
-        board_key   = " ".join(board_fen.split(" ")[:4])
+        board_key   = " ".join(board_fen.split(" ")[:3])
         if board_key in lookup_dict:
             return lookup_dict[board_key]
         else:
             with torch.no_grad():
                 board_repr              = chess_utils.batched_fen_to_tensor([board_fen]).to(DEVICE).half()
                 probs,eval              = model.forward(board_repr)
-                revised_probs           = torch.index_select(probs[0],dim=0,index=torch.tensor([chess_utils.MOVE_TO_I[move] for move in moves],device=DEVICE))
-                revised_probs2          = chess_utils.normalize_cuda(revised_probs)
-
-                lookup_dict[board_key]  = (revised_probs2.to(device=torch.device('cpu'),non_blocking=True).numpy(),eval[0][0].to(device=torch.device('cpu'),non_blocking=True).numpy())
+                probs                   = chess_utils.normalize_cuda(probs[0])
+                #input(eval[0][0])
+                lookup_dict[board_key]  = (probs.to(device=torch.device('cpu'),non_blocking=True).numpy(),eval[0][0].to(device=torch.device('cpu'),non_blocking=True).numpy())
                 return lookup_dict[board_key]
             
             
@@ -119,33 +118,30 @@ class Node:
         if board.is_game_over() or board.ply() > max_depth:
             return self.RESULTS[board.result()]
 
+
         #Run "rollout"
-        moves                       = list(board.generate_legal_moves())
-        probabilities,rollout_val   = self.run_rollout(board,chess_model,lookup_dict,moves)
+        probabilities,rollout_val   = self.run_rollout(board,chess_model,lookup_dict)
 
         #Populate children nodes
         with torch.no_grad():
             
             #Add children
             torch.cuda.synchronize(torch.device('cuda'))
-
-
-            self.children           = [Node(move,self,probabilities[i],depth+1,not board.turn) for i,move in enumerate(moves)]
-            return rollout_val
-            #revized_probs           = [c.init_p for c in self.children]            
+            self.children           = [Node(move,self,probabilities[chess_utils.MOVE_TO_I[move]],depth+1,not board.turn) for move in board.generate_legal_moves()]
+            revized_probs           = [c.init_p for c in self.children]            
             # #Perform softmax on legal moves only
-            # if len(revized_probs) == 1:
-            #     self.children[0].init_p = 1 
+            if len(revized_probs) == 1:
+                self.children[0].init_p = 1 
 
-            #     return rollout_val
-            # else:
-            #     normalized  = chess_utils.normalize(revized_probs,temperature=1)
+                return rollout_val
+            else:
+                normalized  = chess_utils.normalize(revized_probs,temperature=1)
 
 
-            #     for prob,node in zip(normalized,self.children):
-            #         node.init_p     = prob
+                for prob,node in zip(normalized,self.children):
+                    node.init_p     = prob
 
-            #     return rollout_val
+                return rollout_val
 
 
     def bubble_up(self,outcome):

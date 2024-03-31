@@ -109,7 +109,13 @@ class ChessModel(torch.nn.Module):
         #Get p val 
         return self.p_module(x),self.v_module(x)
         
+class ChessModel2(torch.nn.Module):
 
+    def __init__(self):
+
+        super(ChessModel2,self).__init__()
+
+        #Input is (bs,15,8,8)
 
 
 

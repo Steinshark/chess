@@ -92,6 +92,14 @@ def normalize(X,temperature=1):
     cumsum      = sum(X)
     return [x/cumsum for x in X]
 
+
+
+def normalize_cuda(X:torch.Tensor,temperature=1):
+    X           = torch.pow(X,1/temperature)
+    normalized  = X / torch.sum(X)
+    #input(f"normalized is {normalized}")
+    return normalized
+
 def temp_scheduler(ply:int):
 
     #Hold at 1 for first 10 moves 

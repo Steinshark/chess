@@ -4,6 +4,14 @@ import time
 import model 
 import torch
 import value_trainer
+import sys
+
+
+#Determine device using availability and --cpu
+if sys.argv and "--cpu" in sys.argv:
+    DEVICE      = torch.device('cpu')
+else:
+    DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 class MCTree:
@@ -17,7 +25,7 @@ class MCTree:
         self.curdepth           = 0 
         self.max_game           = max_game 
 
-        self.chess_model        = model.ChessModel(15).cuda()
+        self.chess_model        = model.ChessModel(15).to(DEVICE)
         try:
             self.chess_model.load_state_dict(torch.load("chessmodelparams.pt"))
             if verbose:
