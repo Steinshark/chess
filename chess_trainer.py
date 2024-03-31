@@ -6,6 +6,7 @@ from mctree import MCTree
 import os 
 import json
 import time
+import torch
 DATAPATH        = "C:/data/chess/mcts_train"
 
 for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
@@ -15,6 +16,10 @@ for path in ["C:/data","C:/data/chess","C:/data/chess/mcts_train"]:
 
 
 def generate_data(n_games,n_iters):
+
+    #Ensure training consistent
+    random.seed(512)
+    torch.manual_seed(512)
 
     data    = []
 

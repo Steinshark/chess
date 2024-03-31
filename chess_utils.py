@@ -6,7 +6,7 @@ import json
 
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
-CHESSMOVES      = json.loads(open("C:/gitrepos/steinpy/ml/chessmoves.txt","r").read())
+CHESSMOVES      = json.loads(open("C:/gitrepos/chess/chessmoves.txt","r").read())
 MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
 I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
