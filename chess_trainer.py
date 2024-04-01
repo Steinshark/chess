@@ -28,7 +28,7 @@ else:
 
 
 
-def generate_data(n_games,n_iters,uid):
+def generate_data(n_games,n_iters,uid,offset):
     data    = []
 
     for game_i in range(n_games):
@@ -57,17 +57,19 @@ def generate_data(n_games,n_iters,uid):
         data += game_experiences
         
     #Get file to save to 
-    offset  = len([int(file) for file in os.listdir(DATAPATH)])
     print(f"saving to {os.path.join(DATAPATH,uid+"_"+str(offset))}")
     with open(os.path.join(DATAPATH,uid+"_"+str(offset)),'w') as file:
         file.write(json.dumps(data))
 
 if __name__ == "__main__":
 
-    uid     = "".join([str(random.randint(0,9)) for _ in range(5)])
+    uid             = "".join([str(random.randint(0,9)) for _ in range(5)])
+    offset          = 0
+    
     while True:
-        t0  = time.time()
+        t0          = time.time()
         n_games     = 4
-        generate_data(n_games,1000,uid)
+        generate_data(n_games,1000,uid,offset)
         print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game")
+        offset      += 1
 
