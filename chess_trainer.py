@@ -25,7 +25,7 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
         exit()
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+print(f"\tset device to {DEVICE}")
 
 
 def generate_data(n_games,n_iters,uid,offset):
