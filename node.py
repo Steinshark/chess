@@ -7,6 +7,15 @@ import sys
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
     DEVICE      = torch.device('cpu')
+elif sys.argv and "--cuda" in "".join(sys.argv):
+    cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
+    DEVICE      = torch.device(cuda_device)
+    #attempt device check
+    try:
+        test    = torch.tensor([1,2,3],device=DEVICE)
+    except RuntimeError:
+        print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
+        exit()
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -17,7 +26,6 @@ class Node:
 
     #   c is the factor relating to exploration tendency
     c           = 3
-    #   Keep same device for all nodes
     #   Easy board outcome string to value 
     RESULTS     = {"1/2-1/2":0,
                    "*":0,

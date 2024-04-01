@@ -14,12 +14,17 @@ DATAPATH        = "data/mcts_train"
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
     DEVICE      = torch.device('cpu')
+elif sys.argv and "--cuda" in "".join(sys.argv):
+    cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
+    DEVICE      = torch.device(cuda_device)
+    #attempt device check
+    try:
+        test    = torch.tensor([1,2,3],device=DEVICE)
+    except RuntimeError:
+        print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
+        exit()
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-for path in ["data","data/mcts_train"]:
-    if not os.path.exists(path):
-        os.mkdir(path)
 
 
 

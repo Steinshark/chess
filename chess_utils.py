@@ -1,7 +1,6 @@
 import torch
 import numpy 
 import chess 
-import time 
 import json 
 
 
@@ -99,6 +98,7 @@ def normalize_cuda(X:torch.Tensor,temperature=1):
     normalized  = X / torch.sum(X)
     #input(f"normalized is {normalized}")
     return normalized
+
 
 def temp_scheduler(ply:int):
 

@@ -10,9 +10,17 @@ import sys
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
     DEVICE      = torch.device('cpu')
+elif sys.argv and "--cuda" in "".join(sys.argv):
+    cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
+    DEVICE      = torch.device(cuda_device)
+    #attempt device check
+    try:
+        test    = torch.tensor([1,2,3],device=DEVICE)
+    except RuntimeError:
+        print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
+        exit()
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 
 class MCTree:
 
@@ -20,7 +28,7 @@ class MCTree:
         if from_fen:
             self.board          = chess.Board(fen=from_fen)
         else:
-            self.board              = chess.Board()
+            self.board          = chess.Board()
         self.root:Node          = Node(None,None,.2,0,self.board.turn) 
         self.curdepth           = 0 
         self.max_game           = max_game 
@@ -111,19 +119,21 @@ class MCTree:
 
         return "\n\n".join(rows)
 
+
+
 if __name__ == '__main__':
-    mcTree  = MCTree()
+    mcTree  = MCTree(from_fen="rnbqkbnr/2ppppp1/pp5p/8/2B5/4PQ2/PPPP1PPP/RNB1K1NR w KQkq - 0 4")
     #print(f"root: {mcTree.root.is_leaf()}")
     #print(f"{mcTree.board}")
     t0  = time.time()
-    for _ in range(1200):
+    for _ in range(1000):
         mcTree.perform_iter()
 
     
         # print(mcTree)
         # print(f"\n\n\n")
     #print(f"evals:")
-    #print({str(move):eval for move,eval in mcTree.get_eval().items()})
+    print({c.move:c.n_visits for c in mcTree.root.children})
     print(f"time in {(time.time()-t0):.2f}s")
     exit()
     
