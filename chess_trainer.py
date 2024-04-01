@@ -30,6 +30,7 @@ print(f"\tset device to {DEVICE}")
 
 def generate_data(n_games,n_iters,uid,offset):
     data    = []
+    print(f"\tsaving to {os.path.join(DATAPATH,uid+'_'+str(offset))}")
 
     for game_i in range(n_games):
 
@@ -57,7 +58,6 @@ def generate_data(n_games,n_iters,uid,offset):
         data += game_experiences
         
     #Get file to save to 
-    print(f"saving to {os.path.join(DATAPATH,uid+"_"+str(offset))}")
     with open(os.path.join(DATAPATH,uid+"_"+str(offset)),'w') as file:
         file.write(json.dumps(data))
 
