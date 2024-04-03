@@ -9,7 +9,7 @@ import torch
 import sys 
 
 
-DATAPATH        = "data/mcts_train"
+DATAPATH        = "data/"
 
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
