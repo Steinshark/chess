@@ -41,17 +41,26 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
 
             #Run search
             move_probs      = tree.calc_next_move(n_iters=n_iters)
-            revised_probs   = chess_utils.normalize(list(move_probs.values()),temperature=chess_utils.temp_scheduler(tree.board.ply()))
-            probabilities   = [0 for move in chess_utils.CHESSMOVES] 
-            for move,prob in zip(move_probs,revised_probs):
-                probabilities[chess_utils.MOVE_TO_I[move]] = prob 
+
+            #Take top move 
+            #revised_probs   = chess_utils.normalize(list(move_probs.values()),temperature=chess_utils.temp_scheduler(tree.board.ply()))
+            #probabilities   = [0 for move in chess_utils.CHESSMOVES] 
+            #for move,prob in zip(move_probs,revised_probs):
+                #probabilities[chess_utils.MOVE_TO_I[move]] = prob 
             
             #Append data            
-            game_experiences.append([tree.board.fen(),probabilities,0])
+            game_experiences.append([tree.board.fen(),move_probs,0])
             
             #sample and make move 
-            next_move_i     = random.choices(chess_utils.CHESSMOVES, probabilities,k=1)[0]
-            result          = tree.make_move(chess.Move.from_uci(next_move_i))
+            top_move        = None
+            top_visits      = -1 
+            for move,n_visits in move_probs.items():
+                if n_visits > top_visits:
+                    top_move    = move 
+                    top_visits  = n_visits
+
+            #Make move
+            result          = tree.make_move(move)
 
         #Add game experiences
         for i in range(len(game_experiences)):
