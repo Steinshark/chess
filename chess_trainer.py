@@ -9,8 +9,11 @@ import torch
 import sys 
 
 
+#Ensure local path exists
 DATAPATH        = "data/"
-
+if not os.path.exists("data"):
+    os.mkdir("data/")
+    
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
     DEVICE      = torch.device('cpu')
