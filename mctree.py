@@ -56,6 +56,18 @@ class MCTree:
 
 
     def perform_iter(self,initial=False):
+        
+        #If initial and root already has pre-populated values, apply dirichelt before descending
+        if initial and self.root.children:
+            dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
+            for i,child in enumerate(self.root.children):
+                child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+                child.pre_compute()
+            add_after       = False
+        elif initial and not self.root.children:
+            add_after       = True
+        else:
+            add_after       = False
 
         #Get to bottom of tree via traversal algorithm 
         curnode             = self.root 
@@ -76,10 +88,10 @@ class MCTree:
                                                        lookup_dict=self.explored_nodes,
                                                        common_nodes=self.common_nodes)
 
-        #Recompute values for root (add dirichlet)
-        if initial:
+        #Recompute prior probabilities for root on initial iteration (add dirichlet)
+        if add_after:
             dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
-            for i,child in enumerate(self.working_node.children):
+            for i,child in enumerate(self.root.children):
                 child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
                 child.pre_compute()
 
