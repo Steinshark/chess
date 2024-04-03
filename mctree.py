@@ -28,14 +28,14 @@ else:
 
 class MCTree:
 
-    def __init__(self,from_fen="",max_game_ply=160,verbose=False):
+    def __init__(self,from_fen="",max_game_ply=160):
         if from_fen:
             self.board              = chess.Board(fen=from_fen)
         else:
             self.board              = chess.Board()
         self.root:Node              = Node(None,None,.2,0,self.board.turn) 
         self.curdepth               = 0 
-        self.max_game_ply               = max_game_ply 
+        self.max_game_ply           = max_game_ply 
 
         #Training vars
         self.dirichlet_a            = .3
