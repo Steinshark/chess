@@ -12,6 +12,7 @@ import chess_utils
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
     DEVICE      = torch.device('cpu')
+
 elif sys.argv and "--cuda" in "".join(sys.argv):
     cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
     DEVICE      = torch.device(cuda_device)
@@ -21,6 +22,7 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
     except RuntimeError:
         print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
         exit()
+
 else:
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -53,8 +55,6 @@ class MCTree:
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
-    
-    
     def perform_iter(self):
 
         #Get to bottom of tree via traversal algorithm 
@@ -95,6 +95,7 @@ class MCTree:
         dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
         for i,child in enumerate(self.root.children):
             child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+            child.pre_compute()
 
         #All resultant iters will not have dirichlet addition
         for _ in range(n_iters):

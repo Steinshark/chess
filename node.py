@@ -66,6 +66,9 @@ class Node:
         self.precompute         = -1*self.turn*self.c * float(self.init_p)
 
 
+    def pre_compute(self):
+        self.precompute         = -1*self.turn*self.c * float(self.init_p)
+
 
     def is_leaf(self):
         return not bool(self.children)
