@@ -54,7 +54,6 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
                     top_visits  = n_visits
 
             #Make move
-            print(f"top res is {top_move}->{top_visits}")
             result          = tree.make_move(top_move)
 
         #Add game experiences
