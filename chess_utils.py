@@ -9,6 +9,8 @@ CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
 MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
 I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
+TENSOR_CHANNELS = 19
+
 def fen_processor(fen:str):
     for i in range(1,9):
         fen 	= fen.replace(str(i),"e"*i)
@@ -19,10 +21,11 @@ def fen_processor(fen:str):
     return breakout[0].split("/"), breakout[1], breakout[2]
 
 
+#Return a shape 19 tensor
 def fen_to_tensor_lite(fen_info:list):
     position,turn,castling  = fen_info
 
-    this_board              = numpy.zeros(shape=(7+7+1,8,8),dtype=numpy.float32)
+    this_board              = numpy.zeros(shape=(7+7+4+1,8,8),dtype=numpy.float32)
 
     #Place pieces
     for rank_i,rank in enumerate(reversed(position)):
@@ -30,6 +33,12 @@ def fen_to_tensor_lite(fen_info:list):
             if not piece == "e":
                 this_board[PIECES[piece],rank_i,file_i]	= 1.  
     
+    #Place castling 
+    this_board[-5,:,:]      = numpy.ones(shape=(8,8)) * 1. if "K" in castling else 0.            
+    this_board[-4,:,:]      = numpy.ones(shape=(8,8)) * 1. if "Q" in castling else 0.            
+    this_board[-3,:,:]      = numpy.ones(shape=(8,8)) * 1. if "k" in castling else 0.            
+    this_board[-2,:,:]      = numpy.ones(shape=(8,8)) * 1. if "q" in castling else 0.            
+
     #Place turn 
     this_board[-1,:,:]      = numpy.ones(shape=(8,8)) * 1. if turn == "w" else -1.
 
@@ -69,6 +78,7 @@ def batched_fen_to_tensor(fenlist):
 
     #Encoding will be an bsx15x8x8 tensor 
     #	7 for white, 7 for black 
+    #   4 for castling
     # 	1 for move 
     
     #Clean fens
@@ -76,7 +86,7 @@ def batched_fen_to_tensor(fenlist):
 
     #get numpy lists 
     numpy_boards    = list(map(fen_to_tensor_lite,fen_info_list))
-    numpy_boards    = numpy.asarray(numpy_boards)
+    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.float16)
 
 
     return torch.from_numpy(numpy_boards)
@@ -91,6 +101,11 @@ def normalize(X,temperature=1):
     cumsum      = sum(X)
     return [x/cumsum for x in X]
 
+
+def normalize_numpy(X,temperature=1):
+    X           = numpy.power(X,1/temperature)
+
+    return X / numpy.sum(X)
 
 
 def normalize_cuda(X:torch.Tensor,temperature=1):
@@ -107,6 +122,7 @@ def temp_scheduler(ply:int):
         return 1
     else:
         return max(1 - .02*(ply - 10),.01)
+
 
 if __name__ == "__main__":
     from matplotlib import pyplot 

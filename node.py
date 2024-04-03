@@ -3,6 +3,7 @@ import torch
 import chess_utils
 import numpy 
 import sys
+import math 
 
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
@@ -50,6 +51,7 @@ class Node:
         #Node related vars
         self.parent:Node        = parent
         self.children           = []
+        self.bubble_up_with     = [self] 
 
         #Scores and such 
         self.n_visits           = 0 
@@ -59,6 +61,10 @@ class Node:
         self.n_wins             = 0 
 
         self.cumulative_score   = 0
+
+        #precompute val
+        self.precompute         = -1*self.turn*self.c * float(self.init_p)
+
 
 
     def is_leaf(self):
@@ -97,62 +103,62 @@ class Node:
     #       White advantage == 1 
     #   Evaluation is done by the node in its own perspective when picking a next move 
     def get_score(self):
-        return (self.cumulative_score / (self.n_visits+1)) + -1*self.turn*self.c * self.init_p * (numpy.sqrt(self.parent.n_visits) / (self.n_visits+1))
+
+
+        return (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
 
 
     def get_score_str(self):
         return f"{self.get_score():.3f}"
     
 
-    def run_rollout(self,board:chess.Board,model:torch.nn.Module,lookup_dict,moves):
+    def run_rollout(self,board:chess.Board,model:torch.nn.Module,lookup_dict,moves,static_gpu:torch.Tensor,static_cpu_p:torch.Tensor,static_cpu_v:torch.Tensor):
         board_fen   = board.fen()
         board_key   = " ".join(board_fen.split(" ")[:4])
         if board_key in lookup_dict:
             return lookup_dict[board_key]
         else:
             with torch.no_grad():
-                board_repr              = chess_utils.batched_fen_to_tensor([board_fen]).to(DEVICE).half()
-                probs,eval              = model.forward(board_repr)
-                revised_probs           = torch.index_select(probs[0],dim=0,index=torch.tensor([chess_utils.MOVE_TO_I[move] for move in moves],device=DEVICE))
-                revised_probs2          = chess_utils.normalize_cuda(revised_probs)
+                board_repr              = chess_utils.batched_fen_to_tensor([board_fen]).half()
+                static_gpu.copy_(board_repr)
+                probs,eval              = model.forward(static_gpu)
 
-                lookup_dict[board_key]  = (revised_probs2.to(device=torch.device('cpu'),non_blocking=True).numpy(),eval[0][0].to(device=torch.device('cpu'),non_blocking=True).numpy())
+                #Bring it all over to the cpu
+                static_cpu_p.copy_(probs[0],non_blocking=True)
+                static_cpu_v.copy_(eval[0])
+
+                #Convert to numpy and renormalize
+                revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[chess_utils.MOVE_TO_I[move] for move in moves])
+                revised_numpy_probs     = chess_utils.normalize_numpy(revised_numpy_probs,1)
+               
+                lookup_dict[board_key]  = (revised_numpy_probs,static_cpu_v.numpy())
                 return lookup_dict[board_key]
             
             
-    def expand(self,board:chess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,lookup_dict={}):
+    def expand(self,board:chess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,static_gpu,static_cpu_p,static_cpu_v,lookup_dict={},common_nodes={}):
 
-        #Check end state 
+        position_key                    = board.fen()
+        if position_key in common_nodes:
+            common_nodes[position_key].append(self)
+        else:
+            common_nodes[position_key]  = [self]
+
+         #Check end state 
         if board.is_game_over() or board.ply() > max_depth:
             return self.RESULTS[board.result()]
 
         #Run "rollout"
-        moves                       = list(board.generate_legal_moves())
-        probabilities,rollout_val   = self.run_rollout(board,chess_model,lookup_dict,moves)
+        moves                           = list(board.generate_legal_moves())
+        probabilities,rollout_val       = self.run_rollout(board,chess_model,lookup_dict,moves,static_gpu,static_cpu_p,static_cpu_v)
 
         #Populate children nodes
         with torch.no_grad():
             
             #Add children
-            torch.cuda.synchronize(torch.device('cuda'))
-
-
-            self.children           = [Node(move,self,probabilities[i],depth+1,not board.turn) for i,move in enumerate(moves)]
+            self.children               = [Node(move,self,probabilities[i],depth+1,not board.turn) for i,move in enumerate(moves)]
+                
             return rollout_val
-            #revized_probs           = [c.init_p for c in self.children]            
-            # #Perform softmax on legal moves only
-            # if len(revized_probs) == 1:
-            #     self.children[0].init_p = 1 
 
-            #     return rollout_val
-            # else:
-            #     normalized  = chess_utils.normalize(revized_probs,temperature=1)
-
-
-            #     for prob,node in zip(normalized,self.children):
-            #         node.init_p     = prob
-
-            #     return rollout_val
 
 
     def bubble_up(self,outcome):
@@ -162,6 +168,7 @@ class Node:
 
         if not self.parent is None:
             self.parent.bubble_up(outcome)
+        
 
 
     def data_repr(self):

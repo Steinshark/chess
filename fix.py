@@ -2,7 +2,7 @@ import os
 
 experiences     = {}
 
-PATH            = "C:/data/chess/mcts_copy/"
+PATH            = "C:/data/chess/OOGABOOGA/"
 
 for filename in os.listdir(PATH):
     id      = filename[:5]

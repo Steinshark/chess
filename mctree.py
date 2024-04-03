@@ -4,7 +4,9 @@ import time
 import model 
 import torch
 import value_trainer
+import numpy
 import sys
+import chess_utils
 
 
 #Determine device using availability and --cpu
@@ -24,29 +26,35 @@ else:
 
 class MCTree:
 
-    def __init__(self,from_fen="",max_game=160,verbose=False):
+    def __init__(self,from_fen="",max_game_ply=160,verbose=False):
         if from_fen:
-            self.board          = chess.Board(fen=from_fen)
+            self.board              = chess.Board(fen=from_fen)
         else:
-            self.board          = chess.Board()
-        self.root:Node          = Node(None,None,.2,0,self.board.turn) 
-        self.curdepth           = 0 
-        self.max_game           = max_game 
+            self.board              = chess.Board()
+        self.root:Node              = Node(None,None,.2,0,self.board.turn) 
+        self.curdepth               = 0 
+        self.max_game_ply               = max_game_ply 
 
-        self.chess_model        = model.ChessModel(15).to(DEVICE)
-        try:
-            self.chess_model.load_state_dict(torch.load("chessmodelparams.pt"))
-            if verbose:
-                print(f"\tloaded model")
-        except FileNotFoundError:
-            if verbose:
-                print(f"\tTraining V model")
-            value_trainer.train_v_dict(self.chess_model)
-        self.chess_model.eval().half()
+        #Training vars
+        self.dirichlet_a            = .3
+        self.dirichlet_e            = .2
 
-        self.explored_nodes     = dict()
+        #Load and prep model
+        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE).eval().half()
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.freeze(self.chess_model)
+
+        #Keep track of prior explored nodes
+        self.explored_nodes         = dict()
+
+        #Create template in GPU to copy boardstate into
+        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)
+        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
+    
+    
     def perform_iter(self):
 
         #Get to bottom of tree via traversal algorithm 
@@ -56,11 +64,21 @@ class MCTree:
             self.board.push(curnode.move)
             self.curdepth   += 1
 
+        #Expand current working node
         self.working_node   = curnode 
-        move_outcome        = self.working_node.expand(self.board,self.curdepth,self.chess_model,self.max_game,lookup_dict=self.explored_nodes)
+        move_outcome        = self.working_node.expand(self.board,
+                                                       self.curdepth,
+                                                       self.chess_model,
+                                                       self.max_game_ply,
+                                                       static_gpu=self.static_tensorGPU,
+                                                       static_cpu_p=self.static_tensorCPU_P,
+                                                       static_cpu_v=self.static_tensorCPU_V,
+                                                       lookup_dict=self.explored_nodes,
+                                                       common_nodes=self.common_nodes)
 
-        #Update score for tree
-        self.working_node.bubble_up(move_outcome)
+        #Update score for all nodes of this position
+        for node in self.common_nodes[self.board.fen()]:
+            node.bubble_up(move_outcome)
         
         #Undo moves 
         for _ in range(self.curdepth):
@@ -68,11 +86,22 @@ class MCTree:
         self.curdepth = 0
     
 
-    def calc_next_move(self,n_iters=1200):
-        while self.root.n_visits < n_iters:
-            self.perform_iter()
+    def calc_next_move(self,n_iters=1000):
+
+        self.common_nodes   = {}
         
-        return_dict     = {c.move:c.n_visits for c in self.root.children}
+        #First iter will add Dirichlet noise to prior Ps of root 
+        self.perform_iter()
+        dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
+        for i,child in enumerate(self.root.children):
+            child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+
+        #All resultant iters will not have dirichlet addition
+        for _ in range(n_iters):
+            self.perform_iter()
+            
+        
+        return_dict         = {c.move:c.n_visits for c in self.root.children}
         return return_dict
     
 
@@ -82,7 +111,7 @@ class MCTree:
         self.board.push(move)
 
         #check gameover 
-        if self.board.is_game_over() or self.board.ply() > self.max_game:
+        if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
             return Node.RESULTS[self.board.result()]
         
         #update tree 
@@ -137,11 +166,3 @@ if __name__ == '__main__':
     print(f"time in {(time.time()-t0):.2f}s")
     exit()
     
-    
-    
-    
-    print(f"root: {mcTree.root.is_leaf()}")
-
-    print("next leaf is at ",mcTree.retrieve_next_move(), " next turn is ", mcTree.retrieve_next_move().turn)
-    print(f"root is turn {mcTree.root.turn},best child is {mcTree.root.pick_best_child()}")
-    print(f"child turn is {mcTree.root.pick_best_child().turn}")

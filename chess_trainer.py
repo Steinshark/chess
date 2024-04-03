@@ -28,13 +28,13 @@ else:
 print(f"\tset device to {DEVICE}")
 
 
-def generate_data(n_games,n_iters,uid,offset):
+def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
     data    = []
     print(f"\tsaving to {os.path.join(DATAPATH,uid+'_'+str(offset))}")
 
     for game_i in range(n_games):
 
-        tree                = MCTree(verbose= bool(game_i == 0),max_game=160)
+        tree                = MCTree(verbose= bool(game_i == 0),max_game_ply=max_game_ply)
         result              = None 
         game_experiences    = []
         while result is None:
@@ -53,6 +53,7 @@ def generate_data(n_games,n_iters,uid,offset):
             next_move_i     = random.choices(chess_utils.CHESSMOVES, probabilities,k=1)[0]
             result          = tree.make_move(chess.Move.from_uci(next_move_i))
 
+
         for i in range(len(game_experiences)):
             game_experiences[i][2]  = result
         data += game_experiences
@@ -62,14 +63,13 @@ def generate_data(n_games,n_iters,uid,offset):
         file.write(json.dumps(data))
 
 if __name__ == "__main__":
-
     uid             = "".join([str(random.randint(0,9)) for _ in range(5)])
     offset          = 0
     
     while True:
         t0          = time.time()
-        n_games     = 4
-        generate_data(n_games,1000,uid,offset)
+        n_games     = 1
+        generate_data(n_games,1000,uid,offset,max_game_ply=200)
         print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game")
         offset      += 1
 
