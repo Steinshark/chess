@@ -55,7 +55,7 @@ class MCTree:
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
-    def perform_iter(self):
+    def perform_iter(self,initial=False):
 
         #Get to bottom of tree via traversal algorithm 
         curnode             = self.root 
@@ -76,6 +76,13 @@ class MCTree:
                                                        lookup_dict=self.explored_nodes,
                                                        common_nodes=self.common_nodes)
 
+        #Recompute values for root (add dirichlet)
+        if initial:
+            dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
+            for i,child in enumerate(self.working_node.children):
+                child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+                child.pre_compute()
+
         #Update score for all nodes of this position
         for node in self.common_nodes[self.board.fen()]:
             node.bubble_up(move_outcome)
@@ -91,12 +98,8 @@ class MCTree:
         self.common_nodes   = {}
         
         #First iter will add Dirichlet noise to prior Ps of root 
-        self.perform_iter()
-        dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
-        for i,child in enumerate(self.root.children):
-            child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
-            child.pre_compute()
-
+        self.perform_iter(initial=True)
+       
         #All resultant iters will not have dirichlet addition
         for _ in range(n_iters):
             self.perform_iter()
