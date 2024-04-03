@@ -41,12 +41,6 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
 
             #Run search
             move_probs      = tree.calc_next_move(n_iters=n_iters)
-
-            #Take top move 
-            #revised_probs   = chess_utils.normalize(list(move_probs.values()),temperature=chess_utils.temp_scheduler(tree.board.ply()))
-            #probabilities   = [0 for move in chess_utils.CHESSMOVES] 
-            #for move,prob in zip(move_probs,revised_probs):
-                #probabilities[chess_utils.MOVE_TO_I[move]] = prob 
             
             #Append data            
             game_experiences.append([tree.board.fen(),{m.uci():n for m,n in move_probs.items()},0])
@@ -60,7 +54,8 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
                     top_visits  = n_visits
 
             #Make move
-            result          = tree.make_move(move)
+            print(f"top res is {top_move}->{top_visits}")
+            result          = tree.make_move(top_move)
 
         #Add game experiences
         for i in range(len(game_experiences)):
