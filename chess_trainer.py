@@ -49,7 +49,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
                 #probabilities[chess_utils.MOVE_TO_I[move]] = prob 
             
             #Append data            
-            game_experiences.append([tree.board.fen(),move_probs,0])
+            game_experiences.append([tree.board.fen(),{m.uci():n for m,n in move_probs.items()},0])
             
             #sample and make move 
             top_move        = None
@@ -82,6 +82,6 @@ if __name__ == "__main__":
         t0          = time.time()
         n_games     = 1
         n_moves     = generate_data(n_games,1000,uid,offset,max_game_ply=200)
-        print(f"played {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\n{(time.time()-t0)/n_moves:.2f}s/move")
+        print(f"\tplayed {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\t{(time.time()-t0)/n_moves:.2f}s/move\n")
         offset      += 1
 
