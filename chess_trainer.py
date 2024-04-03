@@ -34,7 +34,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
     n_moves     = 0
     for game_i in range(n_games):
 
-        tree                = MCTree(verbose= bool(game_i == 0),max_game_ply=max_game_ply)
+        tree                = MCTree(max_game_ply=max_game_ply)
         result              = None 
         game_experiences    = []
         while result is None:
