@@ -167,12 +167,50 @@ class MCTree:
 
 
 if __name__ == '__main__':
-    mcTree  = MCTree(from_fen="rnbqkbnr/2ppppp1/pp5p/8/2B5/4PQ2/PPPP1PPP/RNB1K1NR w KQkq - 0 4")
     #print(f"root: {mcTree.root.is_leaf()}")
     #print(f"{mcTree.board}")
     t0  = time.time()
-    for _ in range(1000):
-        mcTree.perform_iter()
+    i       = 0
+    gameboard   = chess.Board(fen="rnbq1kr1/1ppp1ppp/4p3/P4n2/2PP4/2N2NP1/1P2PPBP/R1BQK2R w KQ - 5 10")
+    while True:
+
+        command = "yes"
+        #Apply Kyle move 
+        move    = chess.Move.from_uci(input("move uci: "))
+        gameboard.push(move)
+        
+
+        #Prep engine
+        mcTree  = MCTree(from_fen=gameboard.fen())
+        mcTree.common_nodes = {}
+        print(f"\n\nEngines Turn")
+        print(mcTree.board)
+        print(f"\n\n")
+        while "y" in command or "Y" in command:
+            i += 1
+            mcTree.perform_iter()
+
+
+            if i % 50000 == 0:
+                
+                #sample and make move 
+                top_move        = None
+                top_visits      = -1 
+                nodes           = {c.move:c.n_visits for c in mcTree.root.children}
+                for move,n_visits in nodes.items():
+                    if n_visits > top_visits:
+                        top_move    = move 
+                        top_visits  = n_visits
+
+                print(f"top move: {top_move}")
+                print(f"{nodes}")
+                command     = input(f"cont?: ")
+
+        gameboard.push(top_move)
+       
+        print(f"\n\n\nBoard now:")
+        print(gameboard)
+        print(f"\nKyles Turn")
 
     
         # print(mcTree)
