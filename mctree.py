@@ -43,11 +43,13 @@ class MCTree:
 
         #Keep track of prior explored nodes
         self.explored_nodes         = dict()
+        self.common_nodes           = {}
 
         #Create template in GPU to copy boardstate into
         self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)
         self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+
 
     def load_dict(self,state_dict):
         self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE)
@@ -66,8 +68,8 @@ class MCTree:
 
         #Retrace
         self.chess_model            = self.chess_model.eval().half().to(DEVICE)
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
-        self.chess_model 			= torch.jit.freeze(self.chess_model)
+        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
+        #self.chess_model 			= torch.jit.freeze(self.chess_model)
         
 
     def perform_iter(self,initial=False):
@@ -180,6 +182,11 @@ class MCTree:
         return "\n\n".join(rows)
 
 
+    def cleanup(self):
+
+        del self.static_tensorCPU_P
+        del self.static_tensorCPU_V
+        del self.static_tensorCPU_V
 
 if __name__ == '__main__':
     #print(f"root: {mcTree.root.is_leaf()}")

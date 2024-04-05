@@ -120,7 +120,7 @@ def check_vs_stockfish(chess_model:model.ChessModel):
         baseline_data   = json.loads(file.read())
 
     #Prep model
-    chess_model     = chess_model.eval()
+    chess_model     = chess_model.eval().to(DEVICE)
     
     with torch.no_grad():
         
@@ -147,13 +147,16 @@ def showdown_match(model1,model2,n_iters=2000):
     board           = chess.Board()
     max_game_ply    = 200 
     
+    engine1         = MCTree(max_game_ply=max_game_ply)
+    engine1.load_dict(model1)
+    engine2         = MCTree(max_game_ply=max_game_ply)
+    engine2.load_dict(model2)
 
     while not board.is_game_over() and not (board.ply() > max_game_ply):
 
         #Make white move 
-        engine      = MCTree(from_fen=board.fen(),max_game_ply=max_game_ply)
-        engine.load_dict(model1 if board.turn else model2)
-        move_probs  = engine.calc_next_move(n_iters=n_iters)
+        move_probs  = engine1.calc_next_move(n_iters=n_iters) if board.turn else engine2.calc_next_move(n_iters=n_iters)
+        placehold   = engine2.perform_iter() if board.turn else engine1.perform_iter()
 
         #find best move
         top_move        = None
@@ -165,6 +168,9 @@ def showdown_match(model1,model2,n_iters=2000):
 
         #Make move
         board.push(top_move)
+        engine1.make_move(top_move)
+        engine2.make_move(top_move)
+        torch.cuda.empty_cache()
     
     if board.result() == "1-0":
         return 1
@@ -180,8 +186,12 @@ def matchup(n_games,model1,model2,n_iters):
     model2_wins         = 0 
     draws               = 0 
 
+    model1.eval()
+    model2.eval()
+
     for _ in range(n_games//2):
-        game_result     = showdown_match(model1,model2,n_iters=n_iters)
+        with torch.no_grad():
+            game_result     = showdown_match(model1,model2,n_iters=n_iters)
         if game_result == 1:
             model1_wins += 1
         elif game_result == -1:
@@ -190,7 +200,8 @@ def matchup(n_games,model1,model2,n_iters):
             draws += 1
     
     for _ in range(n_games//2):
-        game_result     = showdown_match(model2,model1,n_iters=n_iters)
+        with torch.no_grad():
+            game_result     = showdown_match(model2,model1,n_iters=n_iters)
         if game_result == -1:
             model1_wins += 1
         elif game_result == 1:
@@ -233,6 +244,6 @@ if __name__ == '__main__':
 
     print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
 
-    one,two,draw    = matchup(10,model1,model2,n_iters=4)
+    one,two,draw    = matchup(10,model1,model2,n_iters=1200)
 
     print(f"outcome: {one}-{two}:{draw}")
