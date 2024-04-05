@@ -5,8 +5,11 @@ import json
 import os 
 import chess
 import chess_utils
+import mctree
 from mctree import MCTree
 from torch.utils.data import Dataset,DataLoader
+
+DEVICE      = mctree.DEVICE
 
 class chessExpDataSet(Dataset):
 
@@ -74,9 +77,9 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             fens,distr,z            = batch
 
             #Transform data to useful things
-            board_repr              = chess_utils.batched_fen_to_tensor(fens).cuda().float()
-            z_vals                  = z.unsqueeze(dim=1).float().cuda()
-            distr                   = distr.cuda()
+            board_repr              = chess_utils.batched_fen_to_tensor(fens).to(DEVICE).float()
+            z_vals                  = z.unsqueeze(dim=1).float().to(DEVICE)
+            distr                   = distr.to(DEVICE)
 
             #Get model out
             probs,evals             = chess_model.forward(board_repr)
@@ -124,11 +127,11 @@ def check_vs_stockfish(chess_model:model.ChessModel):
         for experience in baseline_data:
 
             #Get data
-            board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).cuda().float()
-            board_eval  = torch.tensor([chess_utils.clean_eval(experience[1])]).cuda().float().unsqueeze(dim=0)
+            board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
+            board_eval  = torch.tensor([chess_utils.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
             probs       = [0 for _ in chess_utils.CHESSMOVES]
             probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
-            board_prob  = torch.tensor(probs).cuda().float().unsqueeze(dim=0)
+            board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
 
             #Get model 
             prob,eval   = chess_model.forward(board_repr)
@@ -137,7 +140,6 @@ def check_vs_stockfish(chess_model:model.ChessModel):
             v_losses.append(loss_fn_v(eval,board_eval).cpu().detach().item())
 
     return sum(p_losses)/len(p_losses), sum(v_losses)/len(v_losses)
-
 
 
 def showdown_match(model1,model2,n_iters=2000):
@@ -201,7 +203,7 @@ def matchup(n_games,model1,model2,n_iters):
 
 def perform_training():
     path            = "C:/gitrepos/chess/data"
-    chess_model     = model.ChessModel2(19,24).cuda().float()
+    chess_model     = model.ChessModel2(19,24).to(DEVICE).float()
     dataset         = chessExpDataSet(path)
     for _ in range(3):
         print(f"TRAIN ITER {_}")
@@ -218,10 +220,19 @@ def perform_training():
 if __name__ == '__main__':
     
     #perform_training()
+    #Good model
+    model1          = model.ChessModel2(19,24)
+    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
+    
+    #Bad model
+    model2         = model.ChessModel2(19,24)
 
-    model1          = "chess_model_iter1.dict"
-    model2          = model.ChessModel2(19,24)
 
-    one,two,draw    = matchup(2,model1,model2,n_iters=2000)
+    p1,l1           = check_vs_stockfish(model1)
+    p2,l2           = check_vs_stockfish(model2)
 
-    print(f"trained model: {one}[{one/(one+two+draw)}]\tuntrained: {two}[{two/(one+two+draw)}]")
+    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+
+    one,two,draw    = matchup(10,model1,model2,n_iters=4)
+
+    print(f"outcome: {one}-{two}:{draw}")
