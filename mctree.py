@@ -7,7 +7,7 @@ import value_trainer
 import numpy
 import sys
 import chess_utils
-
+from collections import OrderedDict
 
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
@@ -39,12 +39,7 @@ class MCTree:
 
         #Training vars
         self.dirichlet_a            = .3
-        self.dirichlet_e            = .2
-
-        #Load and prep model
-        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE).eval().half()
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
-        self.chess_model 			= torch.jit.freeze(self.chess_model)
+        self.dirichlet_e            = .2 
 
         #Keep track of prior explored nodes
         self.explored_nodes         = dict()
@@ -54,6 +49,26 @@ class MCTree:
         self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
+    def load_dict(self,state_dict):
+        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE)
+
+
+        if isinstance(state_dict,str):
+            self.chess_model.load_state_dict(torch.load(state_dict))
+        elif isinstance(state_dict,OrderedDict):
+            self.chess_model.load_state_dict(state_dict)
+        elif isinstance(state_dict,torch.nn.Module):
+            self.chess_model    = state_dict
+        else:
+            print(f"found something strage[{type(state_dict)}]")
+            exit()
+            
+
+        #Retrace
+        self.chess_model            = self.chess_model.eval().half().to(DEVICE)
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.freeze(self.chess_model)
+        
 
     def perform_iter(self,initial=False):
         

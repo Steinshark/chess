@@ -10,9 +10,9 @@ import sys
 
 
 #Ensure local path exists
-DATAPATH        = "data/"
-if not os.path.exists("data"):
-    os.mkdir("data/")
+DATAPATH        = "data1/"
+if not os.path.exists(DATAPATH):
+    os.mkdir(DATAPATH)
     
 #Determine device using availability and --cpu
 if sys.argv and "--cpu" in sys.argv:
@@ -38,6 +38,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
     for game_i in range(n_games):
 
         tree                = MCTree(max_game_ply=max_game_ply)
+        tree.load_dict('chess_model_iter1.dict')
         result              = None 
         game_experiences    = []
         while result is None:
@@ -71,6 +72,9 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
         file.write(json.dumps(data))
 
     return n_moves
+
+
+
 if __name__ == "__main__":
     uid             = "".join([str(random.randint(0,9)) for _ in range(5)])
     offset          = 0

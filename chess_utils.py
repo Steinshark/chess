@@ -108,12 +108,6 @@ def normalize_numpy(X,temperature=1):
     return X / numpy.sum(X)
 
 
-def normalize_cuda(X:torch.Tensor,temperature=1):
-    X           = torch.pow(X,1/temperature)
-    normalized  = X / torch.sum(X)
-    #input(f"normalized is {normalized}")
-    return normalized
-
 
 def temp_scheduler(ply:int):
 
@@ -122,6 +116,32 @@ def temp_scheduler(ply:int):
         return 1
     else:
         return max(1 - .02*(ply - 10),.01)
+
+
+def movecount_to_prob(movecount,to_tensor=True):
+
+    #Prep zero vector
+    probabilities   = [0 for _ in CHESSMOVES]
+
+    #Fill in move counts
+    for move,count in movecount.items():
+        move_i  = MOVE_TO_I[chess.Move.from_uci(move)]
+        probabilities[move_i]   = count
+    
+    #Return normalized 
+    norm    = normalize(probabilities)
+
+    return torch.tensor(norm)
+
+
+
+
+def clean_eval(evaluation):
+    
+    if evaluation > 0:
+        return min(1500,evaluation) / 1500
+    else:
+        return max(-1500,evaluation) / 1500
 
 
 if __name__ == "__main__":

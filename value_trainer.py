@@ -20,14 +20,6 @@ class ChessDataset(Dataset):
     def __len__(self):
         return len(self.evals)
 
-    
-def clean_eval(evaluation):
-    
-    if evaluation > 0:
-        return min(1500,evaluation) / 1500
-    else:
-        return max(-1500,evaluation) / 1500
-
 
 def build_dataset(data_path,bs=16,train_size=500,test_size=50):
 
@@ -43,7 +35,7 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
 
         positions           = chess_utils.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
 
-        evals               = [torch.tensor(clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
+        evals               = [torch.tensor(chess_utils.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
 
         train_positions += (positions)
         train_evals += (evals)
@@ -56,7 +48,7 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
         fen_to_score_list   = json.loads(contents)
 
         positions           = chess_utils.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
-        evals               = [torch.tensor(clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
+        evals               = [torch.tensor(chess_utils.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
 
         test_positions += (positions)
         test_evals += (evals)
