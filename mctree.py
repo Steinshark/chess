@@ -9,13 +9,18 @@ import sys
 import chess_utils
 from collections import OrderedDict
 
-#Determine device using availability and --cpu
+#Determine device using availability and command line options
 if sys.argv and "--cpu" in sys.argv:
+
+    #Force CPU
     DEVICE      = torch.device('cpu')
 
 elif sys.argv and "--cuda" in "".join(sys.argv):
+
+    #If cuda specfied, use that device ID
     cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
     DEVICE      = torch.device(cuda_device)
+
     #attempt device check
     try:
         test    = torch.tensor([1,2,3],device=DEVICE)
@@ -24,7 +29,10 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
         exit()
 
 else:
+
+    #Default to CUDA device
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 class MCTree:
 

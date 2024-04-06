@@ -1,6 +1,5 @@
 import chess_utils 
 import random 
-import chess
 from mctree import MCTree
 import os 
 import json
@@ -14,33 +13,62 @@ DATAPATH        = "data1/"
 if not os.path.exists(DATAPATH):
     os.mkdir(DATAPATH)
     
-#Determine device using availability and --cpu
+    
+#Determine device using availability and command line options
 if sys.argv and "--cpu" in sys.argv:
+
+    #Force CPU
     DEVICE      = torch.device('cpu')
+
 elif sys.argv and "--cuda" in "".join(sys.argv):
+
+    #If cuda specfied, use that device ID
     cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
     DEVICE      = torch.device(cuda_device)
+
     #attempt device check
     try:
         test    = torch.tensor([1,2,3],device=DEVICE)
     except RuntimeError:
         print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
         exit()
+
 else:
+
+    #Default to CUDA device
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+#Report device used
 print(f"\tset device to {DEVICE}")
 
 
-def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
-    data        = []
+#Handle remaining argsz
+if sys.argv and "--niters:" in "".join(sys.argv):
+    NITERS  = [command.replace('--niters:','') for command in sys.argv if '--niters' in command ][0]
+else:
+    NITERS  = 800
+
+if sys.argv and "--depth:" in "".join(sys.argv):
+    DEPTH   = [command.replace('--depth:','') for command in sys.argv if '--niters' in command ][0]
+else:
+    DEPTH   = 160
+
+#Function to generate training games.
+#   Runs n_games iterations
+def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
+    data                    = []
     print(f"\tsaving to {os.path.join(DATAPATH,uid+'_'+str(offset))}")
-    n_moves     = 0
+    n_moves                 = 0
+
     for game_i in range(n_games):
 
+        #Create game-specific components
         tree                = MCTree(max_game_ply=max_game_ply)
         tree.load_dict('chess_model_iter1.dict')
         result              = None 
         game_experiences    = []
+
+        #Calculate and push moves to board until result is not None
         while result is None:
 
             #Run search
@@ -60,17 +88,23 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=200):
             #Make move
             result          = tree.make_move(top_move)
 
+
         #Add game experiences
         for i in range(len(game_experiences)):
             game_experiences[i][2]  = result
+
+        #Add this game to the total 
         data += game_experiences
 
+        #Track n_moves for timing reasons
         n_moves += tree.board.ply()
         
-    #Get file to save to 
+
+    #Write experiences in json format to file 
     with open(os.path.join(DATAPATH,uid+"_"+str(offset)),'w') as file:
         file.write(json.dumps(data))
 
+    #Return number of moves made for timing reasons
     return n_moves
 
 
@@ -82,7 +116,7 @@ if __name__ == "__main__":
     while True:
         t0          = time.time()
         n_games     = 1
-        n_moves     = generate_data(n_games,1000,uid,offset,max_game_ply=200)
+        n_moves     = generate_data(n_games,800,uid,offset,max_game_ply=160)    #Alphazero was trained with 800iters per search...
         print(f"\tplayed {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\t{(time.time()-t0)/n_moves:.2f}s/move\n")
         offset      += 1
 
