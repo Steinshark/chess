@@ -220,7 +220,7 @@ class ChessModel2(torch.nn.Module):
 if __name__ == "__main__":
     import time
     torch.jit.enable_onednn_fusion(True)
-    m       = GarboCPUModel().float().eval()
+    m       = ChessModel2(19,24).float().eval()
     m = torch.jit.trace(m, [torch.randn(size=(16,19,8,8),device=torch.device('cpu'),dtype=torch.float32)])
     # Invoking torch.jit.freeze
     m = torch.jit.freeze(m)

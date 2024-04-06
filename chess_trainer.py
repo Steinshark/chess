@@ -77,7 +77,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
         while result is None:
 
             #Run search
-            move_probs      = tree.calc_next_move(n_iters=n_iters)
+            move_probs      = tree.evaluate_root(n_iters=n_iters)
             
             #Append data            
             game_experiences.append([tree.board.fen(),{m.uci():n for m,n in move_probs.items()},0])

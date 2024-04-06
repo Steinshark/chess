@@ -87,6 +87,10 @@ class MCTree:
         #self.chess_model 			= torch.jit.freeze(self.chess_model)
         
 
+    #Perform one exploration down the tree
+    #   If 'initial' is set, then add dirichlet noise to 
+    #   children of the root node, which adds noise
+    #   when we want additional exploration
     def perform_iter(self,initial=False):
         
         #If initial and root already has pre-populated values, apply dirichelt before descending
@@ -137,7 +141,9 @@ class MCTree:
         self.curdepth = 0
     
 
-    def calc_next_move(self,n_iters=1000):
+    #Call to begin search down a root. The root may already have 
+    #   children. Dirichlet noise is always added to root.  
+    def evaluate_root(self,n_iters=1000):
 
         self.common_nodes   = {}
         
@@ -151,6 +157,18 @@ class MCTree:
         return {c.move:c.n_visits for c in self.root.children}
     
 
+    #This function will add additional compute to the tree. 
+    def add_compute(self,n_iters):
+
+        for _ in range(n_iters):
+            self.perform_iter()
+
+        return {c.move:c.n_visits for c in self.root.children}
+        
+
+    #Applys the given move to the root 
+    #   and descends to corresponding node.
+    #   Keeps prior calculations down this line  
     def make_move(self,move:chess.Move):
         
         #Make move 
@@ -169,6 +187,7 @@ class MCTree:
         return 
 
 
+    #Displays all nodes in the tree top to bottom. 
     def __repr__(self):
 
         rows    = {0:[self.root.data_repr()]}
@@ -195,11 +214,16 @@ class MCTree:
         return "\n\n".join(rows)
 
 
+    #Remove the memory that was allocated on the CPU, GPU 
     def cleanup(self):
 
         del self.static_tensorCPU_P
         del self.static_tensorCPU_V
         del self.static_tensorCPU_V
+
+
+
+
 
 if __name__ == '__main__':
     #print(f"root: {mcTree.root.is_leaf()}")
