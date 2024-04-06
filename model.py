@@ -216,54 +216,6 @@ class ChessModel2(torch.nn.Module):
         #Get outs
         return self.prob_head(y),self.val_head(y)
 
-class GarboCPUModel(torch.nn.Module):
-    def __init__(self):
-        super(GarboCPUModel, self).__init__()
-
-        self.act_fn = torch.nn.ReLU
-        
-        self.conv_layers = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=19, out_channels=16, kernel_size=3, padding=1),
-            self.act_fn(),
-            torch.nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1),
-            self.act_fn(),
-            torch.nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1),
-            self.act_fn(),
-
-            torch.nn.Conv2d(16,64,3,1,1)
-        )
-        
-        self.linear_layers = torch.nn.Sequential(
-            torch.nn.Conv2d(19,8,3,1,1),
-            self.act_fn(),
-            #torch.nn.Conv2d(16,8,3,1,1),
-            torch.nn.Flatten(start_dim=1),
-            torch.nn.Linear(8 * 8 * 8, 64),
-            self.act_fn(),
-
-            torch.nn.Linear(64, 64),
-            self.act_fn(),
-        )
-        
-        self.p_head = torch.nn.Sequential(
-            torch.nn.Linear(64,1968),
-            torch.nn.Softmax(dim=1)
-        )
-        
-        self.v_head = torch.nn.Sequential(
-
-            torch.nn.Linear(64,1),
-            torch.nn.Tanh()
-        )
-
-    def forward(self, x):
-        #x = self.conv_layers(x)
-        x = self.linear_layers(x)
-        p_output = self.p_head(x)
-        v_output = self.v_head(x)
-        return p_output, v_output
-
-
 
 if __name__ == "__main__":
     import time

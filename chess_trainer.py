@@ -20,6 +20,7 @@ if sys.argv and "--cpu" in sys.argv:
     #Force CPU
     DEVICE      = torch.device('cpu')
 
+
 elif sys.argv and "--cuda" in "".join(sys.argv):
 
     #If cuda specfied, use that device ID
@@ -33,10 +34,12 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
         print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
         exit()
 
+
 else:
 
     #Default to CUDA device
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 #Report device used
 print(f"\tset device to {DEVICE}")
@@ -52,6 +55,7 @@ if sys.argv and "--depth:" in "".join(sys.argv):
     DEPTH   = [command.replace('--depth:','') for command in sys.argv if '--depth:' in command ][0]
 else:
     DEPTH   = 160
+
 
 
 #Function to generate training games.
@@ -118,7 +122,7 @@ if __name__ == "__main__":
     while True:
         t0          = time.time()
         n_games     = 1
-        n_moves     = generate_data(n_games,800,uid,offset,max_game_ply=160)    #Alphazero was trained with 800iters per search...
+        n_moves     = generate_data(n_games,900,uid,offset,max_game_ply=160)    #Alphazero was trained with 800iters per search...
         print(f"\tplayed {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\t{(time.time()-t0)/n_moves:.2f}s/move\n")
         offset      += 1
 
