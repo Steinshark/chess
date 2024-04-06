@@ -49,9 +49,10 @@ else:
     NITERS  = 800
 
 if sys.argv and "--depth:" in "".join(sys.argv):
-    DEPTH   = [command.replace('--depth:','') for command in sys.argv if '--niters' in command ][0]
+    DEPTH   = [command.replace('--depth:','') for command in sys.argv if '--depth:' in command ][0]
 else:
     DEPTH   = 160
+
 
 #Function to generate training games.
 #   Runs n_games iterations
@@ -86,6 +87,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
                     top_visits  = n_visits
 
             #Make move
+            print(f"play {top_move}")
             result          = tree.make_move(top_move)
 
 

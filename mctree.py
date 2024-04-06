@@ -33,7 +33,14 @@ else:
     #Default to CUDA device
     DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+if sys.argv and "--model:" in "".join(sys.argv):
+    models  = {"cpu":model.GarboCPUModel,
+               "gpu":model.ChessModel2}
+    MODEL   = [command.replace('--model:','') for command in sys.argv if '--model:' in command ][0]
+else:
+    MODEL   = model.ChessModel2
 
+    
 class MCTree:
 
     def __init__(self,from_fen="",max_game_ply=160):
@@ -55,8 +62,8 @@ class MCTree:
 
         #Create template in GPU to copy boardstate into
         self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
 
 
     def load_dict(self,state_dict):
@@ -74,7 +81,7 @@ class MCTree:
             exit()
             
 
-        #Retrace
+        #As of not, not retracing due to memory issues??
         self.chess_model            = self.chess_model.eval().half().to(DEVICE)
         #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
         #self.chess_model 			= torch.jit.freeze(self.chess_model)
@@ -134,16 +141,14 @@ class MCTree:
 
         self.common_nodes   = {}
         
-        #First iter will add Dirichlet noise to prior Ps of root 
+        #First iter will add Dirichlet noise to prior Ps of root children
         self.perform_iter(initial=True)
        
         #All resultant iters will not have dirichlet addition
         for _ in range(n_iters):
             self.perform_iter()
-            
-        
-        return_dict         = {c.move:c.n_visits for c in self.root.children}
-        return return_dict
+                    
+        return {c.move:c.n_visits for c in self.root.children}
     
 
     def make_move(self,move:chess.Move):
