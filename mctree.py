@@ -84,9 +84,9 @@ class MCTree:
 
         #As of not, not retracing due to memory issues??
         self.chess_model            = self.chess_model.eval().half().to(DEVICE)
+        torch.backends.cudnn.enabled    = True
         self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
-        torch.backends.cudnn.enabled    = True
         
 
     #Perform one exploration down the tree
