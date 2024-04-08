@@ -72,6 +72,7 @@ class MCTree:
 
         if isinstance(state_dict,str):
             self.chess_model.load_state_dict(torch.load(state_dict))
+            print(f"\tloaded model '{state_dict}'")
         elif isinstance(state_dict,OrderedDict):
             self.chess_model.load_state_dict(state_dict)
         elif isinstance(state_dict,torch.nn.Module):
