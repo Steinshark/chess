@@ -13,7 +13,7 @@ DEVICE      = mctree.DEVICE
 
 class chessExpDataSet(Dataset):
 
-    def __init__(self,filepath:str):
+    def __init__(self,filepath:str,limit=1_000_000):
         
         self.fens           = [] 
         self.distros        = []
@@ -24,7 +24,7 @@ class chessExpDataSet(Dataset):
         filelist        = os.listdir(filepath)
         random.shuffle(filelist)
 
-        for filename in filelist:
+        for filename in filelist[:limit]:
 
             #Fix to full path
             filename    = os.path.join(filepath,filename)
@@ -212,31 +212,36 @@ def matchup(n_games,model1,model2,n_iters):
     return model1_wins,model2_wins,draws
 
 
-def perform_training():
-    path            = "C:/gitrepos/chess/data"
-    chess_model     = model.ChessModel2(19,24).to(DEVICE).float()
-    dataset         = chessExpDataSet(path)
+def perform_training(chess_model):
+    path            = "C:/gitrepos/chess/data1"
+    #chess_model     = model.ChessModel2(19,24).to(DEVICE).float()
+    dataset         = chessExpDataSet(path,limit=2048)
     for _ in range(3):
         print(f"TRAIN ITER {_}")
         print(f"\tTRAIN MODEL")
-        train_model(chess_model,dataset,wd=.01)
         pl,vl   = check_vs_stockfish(chess_model)
+        train_model(chess_model,dataset,wd=.01)
         print(f"\tCHECK MODEL")
-        print(f"\t\tp_baseline: {pl:.4f}\n\t\tv_baseline: {vl:.4f}\n\n")
+        print(f"\t\tp_baseline: {pl:.4f}\n\t\tv_baseline: {vl:.4f}\n\n\n")
+    pl,vl   = check_vs_stockfish(chess_model)
+    print(f"\tp_baseline: {pl:.4f}\n\tv_baseline: {vl:.4f}\n\n")
     
 
     #Save to file 
-    torch.save(chess_model.state_dict(),"chess_model_iter1.dict")
+    torch.save(chess_model.state_dict(),"chess_model_iter2.dict")
 
 if __name__ == '__main__':
-    
-    #perform_training()
+    model1          = model.ChessModel2(19,24)
+    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
+    perform_training(model1)
+    exit()
     #Good model
     model1          = model.ChessModel2(19,24)
     model1.load_state_dict(torch.load("chess_model_iter1.dict"))
     
     #Bad model
     model2         = model.ChessModel2(19,24)
+    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
 
 
     p1,l1           = check_vs_stockfish(model1)

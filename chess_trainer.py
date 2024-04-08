@@ -9,7 +9,7 @@ import sys
 
 
 #Ensure local path exists
-DATAPATH        = "data1/"
+DATAPATH        = "data2/"
 if not os.path.exists(DATAPATH):
     os.mkdir(DATAPATH)
     
@@ -60,16 +60,15 @@ else:
 
 #Function to generate training games.
 #   Runs n_games iterations
-def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
+def generate_data(n_games,n_iters,uid,offset,max_game_ply=160,model_dict="chess_model_iter2.dict"):
     data                    = []
     print(f"\tsaving to {os.path.join(DATAPATH,uid+'_'+str(offset))}")
     n_moves                 = 0
 
     for game_i in range(n_games):
-
         #Create game-specific components
         tree                = MCTree(max_game_ply=max_game_ply)
-        tree.load_dict('chess_model_iter1.dict')
+        tree.load_dict(model_dict)
         result              = None 
         game_experiences    = []
 
@@ -77,6 +76,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
         while result is None:
 
             #Run search
+            t0                  = time.time()
             move_probs      = tree.evaluate_root(n_iters=n_iters)
             
             #Append data            
@@ -91,7 +91,7 @@ def generate_data(n_games,n_iters,uid,offset,max_game_ply=160):
                     top_visits  = n_visits
 
             #Make move
-            print(f"play {top_move}")
+            #print(f"play {top_move} in {(time.time()-t0):.2f}s")
             result          = tree.make_move(top_move)
 
 
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     while True:
         t0          = time.time()
         n_games     = 1
-        n_moves     = generate_data(n_games,900,uid,offset,max_game_ply=160)    #Alphazero was trained with 800iters per search...
+        n_moves     = generate_data(n_games,900,uid,offset,max_game_ply=160,model_dict="chess_model_iter2.dict")    #Alphazero was trained with 800iters per search...
         print(f"\tplayed {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\t{(time.time()-t0)/n_moves:.2f}s/move\n")
         offset      += 1
 

@@ -62,8 +62,8 @@ class MCTree:
 
         #Create template in GPU to copy boardstate into
         self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
     def load_dict(self,state_dict):
@@ -83,8 +83,9 @@ class MCTree:
 
         #As of not, not retracing due to memory issues??
         self.chess_model            = self.chess_model.eval().half().to(DEVICE)
-        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
-        #self.chess_model 			= torch.jit.freeze(self.chess_model)
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.freeze(self.chess_model)
+        torch.backends.cudnn.enabled    = True
         
 
     #Perform one exploration down the tree
