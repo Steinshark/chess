@@ -52,6 +52,49 @@ class chessExpDataSet(Dataset):
 
 
 
+class stockfishExpDataSet(Dataset):
+
+    def __init__(self,filepath:str,limit=1_000_000):
+        
+        self.fens           = [] 
+        self.evaluations    = []
+        self.distros        = [] 
+        self.data           = []
+
+
+        filelist        = os.listdir(filepath)
+        random.shuffle(filelist)
+
+        for filename in filelist[:limit]:
+
+            #Fix to full path
+            filename    = os.path.join(filepath,filename)
+
+            #Load game 
+            with open(filename,"r") as file:
+                game_data   = json.loads(file.read())
+
+                for item in game_data:
+                    fen             = item[0]
+                    evaluation      = chess_utils.clean_eval(item[1])
+                    bestmove_id     = chess_utils.MOVE_TO_I[chess.Move.from_uci(item[2])]
+
+                    distro          = torch.zeros(1968,dtype=torch.float)
+                    distro[bestmove_id] =  1
+
+                    self.fens.append(fen)
+                    self.evaluations.append(evaluation)
+                    self.distros.append(distro)
+
+    def __getitem__(self,i:int):
+        return self.fens[i],self.evaluations[i],self.distros[i]
+    
+    def __len__(self):
+        return len(self.fens)
+
+
+
+
 def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=.0001,wd=0,betas=(.5,.75),n_epochs=1):
 
     #Get data items together 
@@ -62,19 +105,23 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
     loss_fn_v       = torch.nn.MSELoss()
     loss_fn_p       = torch.nn.CrossEntropyLoss()
 
+    #Get model together
+    chess_model.train()
+
+    #Save losses
     p_losses        = [] 
     v_losses        = [] 
     sum_losses      = [] 
 
     for ep_num in range(n_epochs):
-
+        print(f"\tEPOCH {ep_num}")
         for i, batch in enumerate(dataloader):
 
             #Zero
             chess_model.zero_grad()
 
             #Unpack data
-            fens,distr,z            = batch
+            fens,z,distr            = batch
 
             #Transform data to useful things
             board_repr              = chess_utils.batched_fen_to_tensor(fens).to(DEVICE).float()
@@ -100,10 +147,10 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             optimizer.step()
 
 
-    p_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in p_losses])) / len(p_losses)
-    v_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in v_losses])) / len(v_losses)
+        p_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in p_losses])) / len(p_losses)
+        v_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in v_losses])) / len(v_losses)
 
-    print(f"\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\n\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
+        print(f"\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\n\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
 
 
 
@@ -138,6 +185,54 @@ def check_vs_stockfish(chess_model:model.ChessModel):
 
             p_losses.append(loss_fn_p(prob,board_prob).cpu().detach().item())
             v_losses.append(loss_fn_v(eval,board_eval).cpu().detach().item())
+
+    return sum(p_losses)/len(p_losses), sum(v_losses)/len(v_losses)
+
+
+def train_on_stockfish(chess_model:model.ChessModel):
+
+    #Get loss items ready
+    optim           = torch.optim.Adam(chess_model.parameters(),lr=.001,betas=(.5,.999))
+    loss_fn_v       = torch.nn.MSELoss()
+    loss_fn_p       = torch.nn.CrossEntropyLoss()
+    v_losses        = []
+    p_losses        = []
+
+    #Get baseline data ready 
+    with open('baseline/moves.txt','r') as file:
+        baseline_data   = json.loads(file.read())
+
+    #Prep model
+    chess_model     = chess_model.train().to(DEVICE)
+    
+
+    for experience in baseline_data:
+
+        optim.zero_grad()
+
+        #Get data
+        board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
+        board_eval  = torch.tensor([chess_utils.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
+        probs       = [0 for _ in chess_utils.CHESSMOVES]
+        probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
+        board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
+
+        #Get model 
+        prob,eval   = chess_model.forward(board_repr)
+
+        p_loss      = loss_fn_p(prob,board_prob)
+        v_loss      = loss_fn_v(eval,board_eval)
+
+        total_loss  = p_loss + v_loss
+
+        total_loss.backward()
+
+        optim.step()
+
+
+
+        p_losses.append(p_loss.cpu().detach().item())
+        v_losses.append(v_loss.cpu().detach().item())
 
     return sum(p_losses)/len(p_losses), sum(v_losses)/len(v_losses)
 
@@ -231,7 +326,11 @@ def perform_training(chess_model):
     torch.save(chess_model.state_dict(),"chess_model_iter2.dict")
 
 if __name__ == '__main__':
-    model1          = model.ChessModel2(19,24)
+    model1          = model.ChessModel2(19,24).cuda()
+    ds              = stockfishExpDataSet("C:/gitrepos/chess/stockfish_baseline/")
+
+    train_model(model1,ds,bs=1024,lr=.001,n_epochs=4)
+    exit()
     model1.load_state_dict(torch.load("chess_model_iter1.dict"))
     perform_training(model1)
     exit()
