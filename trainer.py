@@ -43,9 +43,15 @@ class chessExpDataSet(Dataset):
                     self.z_vals.append(game_outcome)
 
         self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
+        
+        self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
+
+        #Shuffle data 
+        random.shuffle(self.data)
 
     def __getitem__(self,i:int):
-        return self.fens[i],self.distros[i],self.z_vals[i]
+        item    = self.data[i]
+        return item[i],item[i],item[i]
     
     def __len__(self):
         return len(self.fens)
@@ -151,7 +157,6 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
         v_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in v_losses])) / len(v_losses)
 
         print(f"\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\n\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
-
 
 
 def check_vs_stockfish(chess_model:model.ChessModel):
@@ -326,27 +331,23 @@ def perform_training(chess_model):
     torch.save(chess_model.state_dict(),"chess_model_iter2.dict")
 
 if __name__ == '__main__':
-    model1          = model.ChessModel2(19,24).cuda()
-    ds              = stockfishExpDataSet("C:/gitrepos/chess/stockfish_baseline/")
 
-    train_model(model1,ds,bs=1024,lr=.001,n_epochs=4)
-    exit()
-    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
-    perform_training(model1)
-    exit()
+
     #Good model
     model1          = model.ChessModel2(19,24)
-    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
+    model1.load_state_dict(torch.load("chess_model_iter2.dict"))
     
     #Bad model
     model2         = model.ChessModel2(19,24)
-    model1.load_state_dict(torch.load("chess_model_iter1.dict"))
+    model2.load_state_dict(torch.load("chess_model_iter2.dict"))
 
 
     p1,l1           = check_vs_stockfish(model1)
     p2,l2           = check_vs_stockfish(model2)
 
     print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+
+    train_model(model1,chessExpDataSet("C:/gitrepos/chess/data2"))
 
     one,two,draw    = matchup(10,model1,model2,n_iters=1200)
 
