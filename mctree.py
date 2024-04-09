@@ -33,20 +33,19 @@ else:
     #Default to CUDA device with lowest usage 
     lowest_usage    = 100 
     lowest_device   = 0 
-    for device_id in torch.cuda.device_count():
+    for device_id in range(torch.cuda.device_count()):
         if torch.cuda.utilization(device_id) < lowest_usage:
             lowest_usage = torch.cuda.utilization(device_id)
             lowest_device= device_id
     
 
-    DEVICE      = torch.device('cuda:'+{lowest_device} if torch.cuda.is_available() else 'cpu')
+    DEVICE      = torch.device('cuda:'+str(lowest_device) if torch.cuda.is_available() else 'cpu')
 
 if sys.argv and "--model:" in "".join(sys.argv):
     models  = {"cpu":model.GarboCPUModel,
                "gpu":model.ChessModel2}
     MODEL   = [command.replace('--model:','') for command in sys.argv if '--model:' in command ][0]
 else:
-    
     MODEL   = model.ChessModel2
 
     
