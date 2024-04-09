@@ -8,6 +8,7 @@ import chess_utils
 import mctree
 from mctree import MCTree
 from torch.utils.data import Dataset,DataLoader
+import multiprocessing
 
 DEVICE      = mctree.DEVICE
 
@@ -51,12 +52,39 @@ class chessExpDataSet(Dataset):
 
     def __getitem__(self,i:int):
         item    = self.data[i]
-        return item[i],item[i],item[i]
+        return item[0],item[1],item[2]
     
     def __len__(self):
-        return len(self.fens)
+        return len(self.data)
 
 
+class TrainerExpDataset(Dataset):
+
+    def __init__(self,experiences):
+        self.fens           = [] 
+        self.distros        = [] 
+        self.z_vals         = [] 
+
+        for item in experiences:
+            fen             = item[0]
+            distribution    = item[1]
+            game_outcome    = item[2]
+
+            self.fens.append(fen)
+            self.distros.append(distribution)
+            self.z_vals.append(game_outcome)
+
+        self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
+        
+        self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
+
+    def __getitem__(self,i:int):
+        item    = self.data[i]
+        return item[0],item[1],item[2]
+    
+    def __len__(self):
+        return len(self.data)
+    
 
 class stockfishExpDataSet(Dataset):
 
@@ -127,7 +155,7 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             chess_model.zero_grad()
 
             #Unpack data
-            fens,z,distr            = batch
+            fens,distr,z            = batch
 
             #Transform data to useful things
             board_repr              = chess_utils.batched_fen_to_tensor(fens).to(DEVICE).float()
@@ -242,7 +270,8 @@ def train_on_stockfish(chess_model:model.ChessModel):
     return sum(p_losses)/len(p_losses), sum(v_losses)/len(v_losses)
 
 
-def showdown_match(model1,model2,n_iters=2000):
+def showdown_match(args_package):
+    model1,model2,n_iters   = args_package
 
     board           = chess.Board()
     max_game_ply    = 200 
@@ -252,10 +281,10 @@ def showdown_match(model1,model2,n_iters=2000):
     engine2         = MCTree(max_game_ply=max_game_ply)
     engine2.load_dict(model2)
 
-    while not board.is_game_over() and not (board.ply() > max_game_ply):
+    while not board.is_game_over() and (board.ply() <= max_game_ply):
 
         #Make white move 
-        move_probs  = engine1.calc_next_move(n_iters=n_iters) if board.turn else engine2.calc_next_move(n_iters=n_iters)
+        move_probs  = engine1.evaluate_root(n_iters=n_iters) if board.turn else engine2.evaluate_root(n_iters=n_iters)
         placehold   = engine2.perform_iter() if board.turn else engine1.perform_iter()
 
         #find best move
@@ -270,8 +299,9 @@ def showdown_match(model1,model2,n_iters=2000):
         board.push(top_move)
         engine1.make_move(top_move)
         engine2.make_move(top_move)
-        torch.cuda.empty_cache()
-    
+        #print(f"move: {top_move}")
+        #torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     if board.result() == "1-0":
         return 1
     elif board.result() == '0-1':
@@ -280,18 +310,19 @@ def showdown_match(model1,model2,n_iters=2000):
         return 0
 
 
-def matchup(n_games,model1,model2,n_iters):
+def matchup(n_games,challenger,champion,n_iters,n_threads=4):
 
     model1_wins         = 0
     model2_wins         = 0 
     draws               = 0 
 
-    model1.eval()
-    model2.eval()
+    # model1.eval()
+    # model2.eval()
 
-    for _ in range(n_games//2):
-        with torch.no_grad():
-            game_result     = showdown_match(model1,model2,n_iters=n_iters)
+    with multiprocessing.Pool(n_threads) as pool:
+        results             = pool.map(showdown_match,[(challenger,champion,n_iters) for _ in range(n_games//2)])
+    pool.close()
+    for game_result in results:
         if game_result == 1:
             model1_wins += 1
         elif game_result == -1:
@@ -299,12 +330,13 @@ def matchup(n_games,model1,model2,n_iters):
         else:
             draws += 1
     
-    for _ in range(n_games//2):
-        with torch.no_grad():
-            game_result     = showdown_match(model2,model1,n_iters=n_iters)
-        if game_result == -1:
+    with multiprocessing.Pool(n_threads) as pool:
+        results             = pool.map(showdown_match,[(champion,challenger,n_iters) for _ in range(n_games//2)])
+    pool.close()
+    for game_result in results:
+        if game_result == 1:
             model1_wins += 1
-        elif game_result == 1:
+        elif game_result == -1:
             model2_wins += 1
         else:
             draws += 1
@@ -330,25 +362,36 @@ def perform_training(chess_model):
     #Save to file 
     torch.save(chess_model.state_dict(),"chess_model_iter2.dict")
 
+
+
 if __name__ == '__main__':
 
 
-    #Good model
-    model1          = model.ChessModel2(19,24)
-    model1.load_state_dict(torch.load("chess_model_iter2.dict"))
+    # #Good model
+    # model1          = model.ChessModel2(19,24).cuda()
+    # model1.load_state_dict(torch.load("chess_model_iter3.dict"))
     
-    #Bad model
-    model2         = model.ChessModel2(19,24)
-    model2.load_state_dict(torch.load("chess_model_iter2.dict"))
+    # #Bad model
+    # model2         = model.ChessModel2(19,24).cuda()
+    # model2.load_state_dict(torch.load("chess_model_iter2.dict"))
 
 
-    p1,l1           = check_vs_stockfish(model1)
-    p2,l2           = check_vs_stockfish(model2)
+    # p1,l1           = check_vs_stockfish(model1)
+    # p2,l2           = check_vs_stockfish(model2)
 
-    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+    # print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
 
-    train_model(model1,chessExpDataSet("C:/gitrepos/chess/data2"))
+    # train_model(model1,chessExpDataSet("C:/gitrepos/chess/data2"),4096,.0001,wd=.01,n_epochs=2)
 
-    one,two,draw    = matchup(10,model1,model2,n_iters=1200)
+    # p1,l1           = check_vs_stockfish(model1)
+    # p2,l2           = check_vs_stockfish(model2)
+
+    # print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+    # torch.save(model1.state_dict(),"chess_model_iter3.dict")
+    # exit()
+
+    one,two,draw    = matchup(20,torch.load("chess_model_iter3.dict"),torch.load("chess_model_iter2.dict"),n_iters=800)
 
     print(f"outcome: {one}-{two}:{draw}")
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()

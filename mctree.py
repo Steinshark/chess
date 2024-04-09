@@ -30,14 +30,23 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
 
 else:
 
-    #Default to CUDA device
-    DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    #Default to CUDA device with lowest usage 
+    lowest_usage    = 100 
+    lowest_device   = 0 
+    for device_id in torch.cuda.device_count():
+        if torch.cuda.utilization(device_id) < lowest_usage:
+            lowest_usage = torch.cuda.utilization(device_id)
+            lowest_device= device_id
+    
+
+    DEVICE      = torch.device('cuda:'+{lowest_device} if torch.cuda.is_available() else 'cpu')
 
 if sys.argv and "--model:" in "".join(sys.argv):
     models  = {"cpu":model.GarboCPUModel,
                "gpu":model.ChessModel2}
     MODEL   = [command.replace('--model:','') for command in sys.argv if '--model:' in command ][0]
 else:
+    
     MODEL   = model.ChessModel2
 
     
@@ -71,7 +80,8 @@ class MCTree:
 
 
         if isinstance(state_dict,str):
-            self.chess_model.load_state_dict(torch.load(state_dict))
+            if not state_dict == '':
+                self.chess_model.load_state_dict(torch.load(state_dict))
             print(f"\tloaded model '{state_dict}'")
         elif isinstance(state_dict,OrderedDict):
             self.chess_model.load_state_dict(state_dict)
