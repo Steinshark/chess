@@ -63,7 +63,8 @@ def showdown_match(args_package):
 
 def find_best_model(model_params:dict,max_game_ply,n_iters):
     top_model           = 0 
-    
+    matchups            = []
+    n_games             = 20
     
 
     for challenger_i,challenger_params in model_params.items():
@@ -74,30 +75,35 @@ def find_best_model(model_params:dict,max_game_ply,n_iters):
         top_model_params        = model_params[top_model]
 
         #Play 10 as W 
-        with multiprocessing.Pool(4) as pool:
-            results_w           = pool.map(showdown_match,[(challenger_params,top_model_params,n_iters,max_game_ply) for _ in range(5)])
+        with multiprocessing.Pool(3) as pool:
+            results_w           = pool.map(showdown_match,[(challenger_params,top_model_params,n_iters,max_game_ply) for _ in range(n_games//2)])
             challenger_wins     = list(results_w).count(1)
             champion_wins       = list(results_w).count(-1)
+        pool.close()
+
         #Play 10 as B
-        with multiprocessing.Pool(4) as pool:
-            results_b           = pool.map(showdown_match,[(top_model_params,challenger_params,n_iters,max_game_ply) for _ in range(5)])
+        with multiprocessing.Pool(3) as pool:
+            results_b           = pool.map(showdown_match,[(top_model_params,challenger_params,n_iters,max_game_ply) for _ in range(n_games//2)])
             challenger_wins     += list(results_w).count(-1)
             champion_wins       += list(results_w).count(1)
+        pool.close()
+
 
         #Set new champion for any number of better wins
+        matchups.append(f"{challenger_i}vs{top_model}\t{challenger_wins}:{champion_wins} | {n_games-(challenger_wins+challenger_wins)}")
         if champion_wins > challenger_wins:
             top_model           = challenger_i
-    
-    return top_model
+
+    return top_model,matchups
 
 
 #Plays one game using the specified model and returns all experiences from that game
 #   max_game_ply is the max moves per game 
 #   n_iters is the number of iterations run by the MCTree to evaluate the position
-def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None):
+def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
 
     #Create board and tree
-    engine              = MCTree(max_game_ply=max_game_ply)
+    engine              = MCTree(max_game_ply=max_game_ply,device_id=device_id)
     game_experiences    = []
     result              = None
     engine.load_dict(model_dict)

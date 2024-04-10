@@ -21,9 +21,11 @@ import trainer
 import time 
 
 
+#Runs on the client machine and generates training data 
+#   by playing games againts itself
 class Client(Thread):
 
-    def __init__(self,address='localhost',port=15555):
+    def __init__(self,address='localhost',port=15555,device_id=None):
         super(Client,self).__init__()
 
         #Setup socket 
@@ -31,8 +33,10 @@ class Client(Thread):
         self.address                = address
         self.port                   = port 
         self.running                = True
+        
         #game related variables
         self.current_model_params   = None
+        self.device_id              = device_id
         print(f"creating client")
 
 
@@ -78,7 +82,7 @@ class Client(Thread):
 
 
     def run_game(self):
-
+        print(f"beginning game")
         #Recieve 1024 bytes of data 
         data_packet                 = self.client_socket.recv(1024).decode()
         game_parameters             = json.loads(data_packet)
@@ -91,9 +95,11 @@ class Client(Thread):
         training_data               = alg_train.play_game(self.current_model,
                                                           max_game_ply=max_game_ply,
                                                           n_iters=n_iters,
-                                                          wildcard=self)
+                                                          wildcard=self,
+                                                          device_id=self.device_id)
 
         self.current_data_batch     = training_data
+        print(f"finished game\n")
 
 
     def upload_data(self):
@@ -141,6 +147,9 @@ class Client(Thread):
 
 
 
+#Handles a single client and gives it a model to use,
+#   tells it to play games, and translates it back
+#   to the Server 
 class Client_Manager(Thread):
 
     def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params):
@@ -153,6 +162,8 @@ class Client_Manager(Thread):
 
         self.current_model_params   = model_params
         self.current_game_params    = game_params
+        self.in_game                = False
+        self.lock                   = False
 
 
     def is_alive(self):
@@ -172,7 +183,7 @@ class Client_Manager(Thread):
 
 
             while self.running:
-                
+                self.in_game            = True
                 #Send model parameters to client 
                 #   serialize params to buffer, then send buffer    
                 buffer                  = BytesIO()
@@ -213,6 +224,11 @@ class Client_Manager(Thread):
                         except json.JSONDecodeError:
                             print(f"ERROR IN DATAT recieved:\n{client_response}")
                             input(f"ERROR continue?")
+                
+                self.in_game                = False
+
+                while self.lock:
+                    time.sleep(.1)
                             
 
 
@@ -229,6 +245,9 @@ class Client_Manager(Thread):
 
 
 
+#Handles the server (Aka in charge of the training algorithm)
+#   each client that connects will get its own Client_Manager 
+#   and generate trainin games
 class Server(Thread):
 
     def __init__(self,address='localhost',port=15555):
@@ -245,22 +264,23 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":200}
+        self.game_params                    = {"ply":100,"n_iters":50}
 
         #Training items 
         self.current_generation_data        = [] 
-        self.train_thresh                   = 1024
-        self.train_size                     = 256
-        self.bs                             = 32    
+        self.train_thresh                   = 2048
+        self.train_size                     = 768
+        self.bs                             = 128   
         self.lr                             = .001 
         self.wd                             = .01 
-        self.betas                          = (.5,.9)
+        self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
         self.gen                            = 0 
 
-        self.update_iter                    = 15
+        self.update_iter                    = 30
         self.next_update_t                  = time.time() + self.update_iter
         self.game_stats                     = []
+        self.lr_mult                        = .75             
 
 
     def build_socket(self,address,port):
@@ -285,11 +305,19 @@ class Server(Thread):
     
 
     def update_clients(self):
-
-        for client in self.clients:
-            #Pass-on most recent model 
-            client.recieve_model(self.model_params[self.top_model])
-            
+        
+        hitlist         = [] 
+        for client_index,client in enumerate(self.clients):
+            #Check client is alive 
+            if not client.running:
+                hitlist.append(client_index)
+            else:
+                #Pass-on most recent model 
+                client.recieve_model(self.model_params[self.top_model])
+                
+        for client_index in hitlist:
+            self.clients.pop(client_index)
+            print(f"\tremove client: {client_index}")
         pass 
 
 
@@ -298,6 +326,30 @@ class Server(Thread):
             continue
         pass
     
+
+    def sync_all_clients(self):
+        print(f"locking")
+        found_running_game  = True 
+
+        while found_running_game:
+            found_running_game = False
+
+            for client in self.clients:
+                client.lock             = True 
+                
+                if client.in_game:
+                    found_running_game  = True 
+                
+        print(f"all clients locked\n")
+
+   
+    def unsync_all_clients(self):
+
+        #Unlock all clients
+        for client in self.clients:
+            client.lock                 = False 
+        print(f"all clients unlocked")
+
 
     def update_training_state(self):
 
@@ -317,7 +369,14 @@ class Server(Thread):
             self.next_update_t = time.time() + self.update_iter
         #Once over self.train_thresh, train and update model 
         if len(self.current_generation_data) > self.train_thresh:
-            print(f"\n\tTraining Gen {self.gen}:\n")
+            #Dont train until all games are done
+            self.sync_all_clients()
+
+            print(f"\n\n\tTraining Gen {self.gen}:\n")
+            print(f"\tTRAIN PARAMS")
+            print(f"\t\tbs:\t{self.bs}")
+            print(f"\t\tlr:\t{self.lr}")
+            print(f"\t\tbetas:\t{self.betas}\n\n")
             #Select dataset to train on 
             training_batch                  = random.choices(self.current_generation_data,k=self.train_size)
             training_dataset                = trainer.TrainerExpDataset(training_batch)
@@ -328,26 +387,36 @@ class Server(Thread):
 
             #View performance vs stockfish before
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\t\tPRE_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n")
+            print(f"\t\tPRE_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
             #Train it 
             print(f"\t\tTRAINING:")
             p_losses,v_losses               = trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
             epoch                           = 0 
             for p,v in zip(p_losses,v_losses):
-                print(f"\t\t\tEPOCH [{epoch}]\n\t\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}")
+                print(f"\t\tEPOCH [{epoch}]\n\t\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}\n")
             self.model_params[self.gen+1]   = next_gen_model.state_dict()
+            print(f"\n")
 
             #View performance vs stockfish after 
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\t\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
+            print(f"\n\t\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
 
             #Find best model 
             print(f"\t\tMODEL SHOWDOWN\n")
-            self.top_model                   = alg_train.find_best_model(self.model_params,80,400)
+            self.top_model,matchups         = alg_train.find_best_model(self.model_params,40,50)
             print(f"\t\tTop Model: {self.top_model}")
-            self.gen += 1
+            for match in matchups:
+                print(f"\t\t\t{match}")
+            print("")
+            self.gen                        += 1
 
-            self.current_generation_data     = []
+        
+            #Reset training data pool
+            self.current_generation_data    = []
+            #Reduce lr 
+            self.lr                         *= self.lr_mult
+
+            self.unsync_all_clients()
     
     
     #Run the server
@@ -387,8 +456,10 @@ class Server(Thread):
         for client_manager in self.clients:
             client_manager.shutdown()
         
+
         self.server_socket.close()
 
+        self.join()
 
 
 #Plays one game using the specified model and returns all experiences from that game

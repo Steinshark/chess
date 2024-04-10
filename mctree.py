@@ -40,9 +40,9 @@ else:
         device_id   = 0 
     else:
         if torch.cuda.utilization(0) < torch.cuda.utilization(1):
-            device_id = 0
-        else:
             device_id = 1
+        else:
+            device_id = 0
 
     DEVICE      = torch.device('cuda:'+str(device_id) if torch.cuda.is_available() else 'cpu')
 
@@ -66,7 +66,9 @@ else:
 class MCTree:
 
 
-    def __init__(self,from_fen="",max_game_ply=160):
+    def __init__(self,from_fen="",max_game_ply=160,device_id=None):
+        
+        global DEVICE
 
         #Check if a fen is provided, otherwise use the chess starting position
         if from_fen:
@@ -88,6 +90,10 @@ class MCTree:
         #Keep track of prior explored nodes
         self.explored_nodes         = dict()
         self.common_nodes           = {}
+
+        #Check override device 
+        if not device_id is None:
+            DEVICE = torch.device(f'cuda:{device_id}')
 
         #Create template in GPU to copy boardstate into
         self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)

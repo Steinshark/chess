@@ -150,7 +150,6 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
     sum_losses      = [] 
 
     for ep_num in range(n_epochs):
-        print(f"\t\tEPOCH {ep_num}")
         for i, batch in enumerate(dataloader):
 
             #Zero
