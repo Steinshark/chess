@@ -145,6 +145,8 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
     #Save losses
     p_losses        = [] 
     v_losses        = [] 
+    p_ep_loss       = [] 
+    v_ep_loss       = [] 
     sum_losses      = [] 
 
     for ep_num in range(n_epochs):
@@ -183,9 +185,10 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
 
         p_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in p_losses])) / len(p_losses)
         v_loss_out  = torch.sum(torch.cat([p.unsqueeze(dim=0) for p in v_losses])) / len(v_losses)
-
-        print(f"\t\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\n\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
-
+        p_ep_loss.append(p_loss_out)
+        v_ep_loss.append(v_loss_out)
+        #print(f"\t\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
+        return p_ep_loss,v_ep_loss
 
 def check_vs_stockfish(chess_model:model.ChessModel):
 

@@ -61,28 +61,32 @@ def showdown_match(args_package):
 
 
 
-def find_best_model(model_parameters_list:dict,max_game_ply,n_iters):
+def find_best_model(model_params:dict,max_game_ply,n_iters):
     top_model           = 0 
-    top_model_params    =   model_parameters_list[list(model_parameters_list.keys())[0]]
+    
+    
 
-    for model_i in model_parameters_list:
-        challenger      = model_parameters_list[model_i]
+    for challenger_i,challenger_params in model_params.items():
+        
+        #Skip first challenger (well use it as first opponent)
+        if challenger_i == 0:
+            continue 
+        top_model_params        = model_params[top_model]
 
         #Play 10 as W 
         with multiprocessing.Pool(4) as pool:
-            results_w           = pool.map(showdown_match,[(challenger,top_model_params,n_iters,max_game_ply) for _ in range(5)])
+            results_w           = pool.map(showdown_match,[(challenger_params,top_model_params,n_iters,max_game_ply) for _ in range(5)])
             challenger_wins     = list(results_w).count(1)
             champion_wins       = list(results_w).count(-1)
         #Play 10 as B
         with multiprocessing.Pool(4) as pool:
-            results_b           = pool.map(showdown_match,[(challenger,top_model,n_iters,max_game_ply) for _ in range(5)])
+            results_b           = pool.map(showdown_match,[(top_model_params,challenger_params,n_iters,max_game_ply) for _ in range(5)])
             challenger_wins     += list(results_w).count(-1)
             champion_wins       += list(results_w).count(1)
 
         #Set new champion for any number of better wins
         if champion_wins > challenger_wins:
-            top_model           = model_i
-            top_model_params    = challenger
+            top_model           = challenger_i
     
     return top_model
 

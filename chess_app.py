@@ -263,7 +263,7 @@ class ChessApp:
         #   Train 
         self.train_menu         = tk.Menu(self.main_menu,tearoff=False) 
         self.train_menu.add_command(label='Start Server',command=self.run_as_server) 
-        self.train_menu.add_command(label='Start Client_Manager',command=self.run_as_worker) 
+        self.train_menu.add_command(label='Start Client',command=self.run_as_worker) 
         self.train_menu.add_command(label='-') 
         self.train_menu.add_command(label='-')
 

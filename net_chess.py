@@ -245,7 +245,7 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":100}
+        self.game_params                    = {"ply":100,"n_iters":200}
 
         #Training items 
         self.current_generation_data        = [] 
@@ -258,8 +258,9 @@ class Server(Thread):
         self.n_epochs                       = 1 
         self.gen                            = 0 
 
-        self.update_iter                    = 30
+        self.update_iter                    = 15
         self.next_update_t                  = time.time() + self.update_iter
+        self.game_stats                     = []
 
 
     def build_socket(self,address,port):
@@ -308,15 +309,15 @@ class Server(Thread):
         if time.time() - self.next_update_t > 0:    
 
             #Add leading zeros to len
-            cur_len_string              = len(self.current_generation_data)
+            cur_len_string              = str(len(self.current_generation_data))
             while len(cur_len_string) < len(str(self.train_thresh)):
                 cur_len_string = "0" + cur_len_string
 
-            print(f"\tGeneration [{self.gen}]:\t[{len(self.current_generation_data)}/{self.train_thresh}] experiences gatheres")
+            print(f"\tGeneration [{self.gen}]:\t[{cur_len_string}/{self.train_thresh}] samples accumulated")
             self.next_update_t = time.time() + self.update_iter
         #Once over self.train_thresh, train and update model 
         if len(self.current_generation_data) > self.train_thresh:
-            print(f"\t\tTraining Gen {self.gen}:")
+            print(f"\n\tTraining Gen {self.gen}:\n")
             #Select dataset to train on 
             training_batch                  = random.choices(self.current_generation_data,k=self.train_size)
             training_dataset                = trainer.TrainerExpDataset(training_batch)
@@ -329,16 +330,21 @@ class Server(Thread):
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
             print(f"\t\tPRE_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n")
             #Train it 
-            trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
+            print(f"\t\tTRAINING:")
+            p_losses,v_losses               = trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
+            epoch                           = 0 
+            for p,v in zip(p_losses,v_losses):
+                print(f"\t\t\tEPOCH [{epoch}]\n\t\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}")
             self.model_params[self.gen+1]   = next_gen_model.state_dict()
 
             #View performance vs stockfish after 
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
-            
+            print(f"\t\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
+
             #Find best model 
-            self.top_model                   = alg_train.find_best_model(self.model_params,50,100)
-            print(f"\tGeneration {self.gen} best model is {self.top_model}")
+            print(f"\t\tMODEL SHOWDOWN\n")
+            self.top_model                   = alg_train.find_best_model(self.model_params,80,400)
+            print(f"\t\tTop Model: {self.top_model}")
             self.gen += 1
 
             self.current_generation_data     = []

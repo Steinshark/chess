@@ -36,9 +36,14 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
         exit()
 
 else:
-    #Select GPU at random (bug in cuda.utiilzation on pytorch)
-    device_id       = random.randint(0,torch.cuda.device_count()-1)
-    print(f"using device {device_id}")
+    if torch.cuda.device_count() == 1:
+        device_id   = 0 
+    else:
+        if torch.cuda.utilization(0) < torch.cuda.utilization(1):
+            device_id = 0
+        else:
+            device_id = 1
+
     DEVICE      = torch.device('cuda:'+str(device_id) if torch.cuda.is_available() else 'cpu')
 
 if sys.argv and "--model:" in "".join(sys.argv):
