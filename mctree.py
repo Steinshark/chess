@@ -14,6 +14,7 @@ import numpy
 import sys
 import chess_utils
 from collections import OrderedDict
+import random 
 
 #Determine device using availability and command line options
 if sys.argv and "--cpu" in sys.argv:
@@ -35,18 +36,10 @@ elif sys.argv and "--cuda" in "".join(sys.argv):
         exit()
 
 else:
-
-    #Default to CUDA device with lowest usage 
-    lowest_usage            = 100 
-    lowest_device           = 0 
-    for device_id in range(torch.cuda.device_count()):
-        device_usage        = torch.cuda.utilization(device_id)
-        if device_usage < lowest_usage:
-            lowest_usage    = device_usage
-            lowest_device   = device_id
-            print(f"id {device_id}={torch.cuda.utilization(device_id)}")
+    #Select GPU at random (bug in cuda.utiilzation on pytorch)
+    device_id       = random.randint(0,torch.cuda.device_count()-1)
     print(f"using device {device_id}")
-    DEVICE      = torch.device('cuda:'+str(lowest_device) if torch.cuda.is_available() else 'cpu')
+    DEVICE      = torch.device('cuda:'+str(device_id) if torch.cuda.is_available() else 'cpu')
 
 if sys.argv and "--model:" in "".join(sys.argv):
     models  = {"cpu":model.GarboCPUModel,

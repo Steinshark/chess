@@ -15,6 +15,10 @@ from threading import Thread
 from model import ChessModel2
 import alg_train
 from io import BytesIO
+import random
+import trainer 
+
+import time 
 
 
 class Client(Thread):
@@ -43,19 +47,13 @@ class Client(Thread):
         while self.running:
 
             #Recieve a model_dictionary
-            print(f"begin param down;oad")
             self.recieve_model_params()
-            print(f"end param download\n")
 
             #Run a game
-            print(f"begin game run")
             self.run_game()
-            print(f"end game run\n")
 
             #Return experiences 
-            print(f"begin data upload")
             self.upload_data()
-            print(f"end data upload\n\n")
          
     
     def recieve_model_params(self):
@@ -68,7 +66,6 @@ class Client(Thread):
         data_packet                 = self.client_socket.recv(1024*1024*64) 
         buffer                      = BytesIO(data_packet)                 
         params_as_bytes             = buffer.getvalue()
-        print(f"recieved {len(params_as_bytes)}")
         model_parameters            = torch.load(BytesIO(params_as_bytes))
         #model_parameters            = json.loads(data_packet.decode())
 
@@ -78,7 +75,6 @@ class Client(Thread):
         self.current_model_params   = model_parameters
 
         self.client_socket.send("Recieved".encode())
-        print(f"recieved and loaded model")
 
 
     def run_game(self):
@@ -127,7 +123,6 @@ class Client(Thread):
             #Combine strings 
             data_packet     = (fen,move_stats,outcome)
             data_packet     = json.dumps(data_packet)
-
             #encode to bytes and send to server 
             self.client_socket.send(data_packet.encode())
             #print(f"\tsent packet [{packet_i}/{len(game_experiences)}]")#DEBUG
@@ -144,9 +139,11 @@ class Client(Thread):
         self.running = False 
         self.client_socket.close()
 
+
+
 class Client_Manager(Thread):
 
-    def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue):
+    def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params):
         super(Client_Manager,self).__init__()
         self.client_socket          = client_socket
         self.client_address         = address
@@ -154,14 +151,16 @@ class Client_Manager(Thread):
         self.queue                  = client_queue
         self.running                = True
 
-        self.current_model_params   = ChessModel2(19,24).cuda().state_dict()
-        self.current_game_params    = {"ply":20,"n_iters":200} 
+        self.current_model_params   = model_params
+        self.current_game_params    = game_params
+
 
     def is_alive(self):
         if not isinstance(self.client_address,socket.socket):
             return False
         return True
     
+
     def recieve_model(self,new_model):
         self.current_model_params    = new_model
     
@@ -180,12 +179,10 @@ class Client_Manager(Thread):
                 torch.save(self.current_model_params,buffer)
                 params_as_bytes         = buffer.getvalue()
                 #data_packet             = json.dumps(self.current_model_params)
-                print(f"sent {len(params_as_bytes)}")
                 self.client_socket.send(params_as_bytes)
 
                 #Get confirmation from client "Recieved"
                 self.client_socket.recv(32)
-                print(f"RECIEVED!")
 
                 #Send game parameters to client 
                 data_packet             = json.dumps(self.current_game_params)
@@ -196,33 +193,28 @@ class Client_Manager(Thread):
 
                 #Receive the 'Start' signal 
                 client_response         = self.client_socket.recv(32)
-                experiences             = []
 
                 #Recieve data until "End" signal
-                print(f"streaming data")
                 while True:
                     #Send Ready Signal
                     self.client_socket.send("Ready".encode())
-                    print(f"\tSEND")
                     client_response     = self.client_socket.recv(32768).decode()
-                    print(f"\t recieve {client_response[:10]}")
                     if client_response  == "End":
-                        print(f"Received END signal")
                         break 
                     else:
                         try:
                             #Add experience to the experience queue to transfer
                             #   back to server thread
                             client_response = json.loads(client_response)
-                            experiences.append(client_response)
+
+                            #Clean back up            FEN                   MOVE_DISTR                      OUTCOME
+                            client_response = (client_response[0],json.loads(client_response[1]),float(client_response[2]))
                             self.queue.put(client_response)
                         except json.JSONDecodeError:
-                            print(f"recieved data\n{client_response}")
+                            print(f"ERROR IN DATAT recieved:\n{client_response}")
                             input(f"ERROR continue?")
                             
 
-                print(f"ending data stream")
-                print(f"queue is {self.queue.qsize()}\n\n")
 
                 #client_socket.send("Kill".encode())
         except OSError:
@@ -230,9 +222,11 @@ class Client_Manager(Thread):
             return False
             pass
 
+
     def shutdown(self):
         self.client_socket.close()
         self.running                = False
+
 
 
 class Server(Thread):
@@ -244,11 +238,28 @@ class Server(Thread):
 
         #Establish items 
         self.clients:list[Client_Manager]   = [] 
-        self.current_model_dict             = "chess_model_iter4.dict"
-        self.current_model_params           = ChessModel2(19,24).cuda().parameters()
         self.build_socket(address,port)
 
         self.running                        = True 
+
+        #Model items 
+        self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
+        self.top_model                      = 0 
+        self.game_params                    = {"ply":100,"n_iters":100}
+
+        #Training items 
+        self.current_generation_data        = [] 
+        self.train_thresh                   = 1024
+        self.train_size                     = 256
+        self.bs                             = 32    
+        self.lr                             = .001 
+        self.wd                             = .01 
+        self.betas                          = (.5,.9)
+        self.n_epochs                       = 1 
+        self.gen                            = 0 
+
+        self.update_iter                    = 30
+        self.next_update_t                  = time.time() + self.update_iter
 
 
     def build_socket(self,address,port):
@@ -276,7 +287,7 @@ class Server(Thread):
 
         for client in self.clients:
             #Pass-on most recent model 
-            client.recieve_model(self.current_model_dict)
+            client.recieve_model(self.model_params[self.top_model])
             
         pass 
 
@@ -286,10 +297,56 @@ class Server(Thread):
             continue
         pass
     
+
+    def update_training_state(self):
+
+        #Snatch all experiences still in queues
+        for client in self.clients:
+            while not client.queue.empty():
+                self.current_generation_data.append(client.queue.get())
+
+        if time.time() - self.next_update_t > 0:    
+
+            #Add leading zeros to len
+            cur_len_string              = len(self.current_generation_data)
+            while len(cur_len_string) < len(str(self.train_thresh)):
+                cur_len_string = "0" + cur_len_string
+
+            print(f"\tGeneration [{self.gen}]:\t[{len(self.current_generation_data)}/{self.train_thresh}] experiences gatheres")
+            self.next_update_t = time.time() + self.update_iter
+        #Once over self.train_thresh, train and update model 
+        if len(self.current_generation_data) > self.train_thresh:
+            print(f"\t\tTraining Gen {self.gen}:")
+            #Select dataset to train on 
+            training_batch                  = random.choices(self.current_generation_data,k=self.train_size)
+            training_dataset                = trainer.TrainerExpDataset(training_batch)
+
+            #Clone current best model 
+            next_gen_model                  = ChessModel2(19,24).cuda()
+            next_gen_model.load_state_dict(self.model_params[self.top_model])
+
+            #View performance vs stockfish before
+            p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
+            print(f"\t\tPRE_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n")
+            #Train it 
+            trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
+            self.model_params[self.gen+1]   = next_gen_model.state_dict()
+
+            #View performance vs stockfish after 
+            p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
+            print(f"\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
+            
+            #Find best model 
+            self.top_model                   = alg_train.find_best_model(self.model_params,50,100)
+            print(f"\tGeneration {self.gen} best model is {self.top_model}")
+            self.gen += 1
+
+            self.current_generation_data     = []
+    
     
     #Run the server
     def run(self):
-
+        
         #ALways on 
         while self.running:
 
@@ -298,9 +355,9 @@ class Server(Thread):
                 client_socket,addr      = self.server_socket.accept() 
                 
                 #Create and start client
-                new_client              = Client_Manager(client_socket,addr,self.get_next_id(),Queue())
+                new_client              = Client_Manager(client_socket,addr,self.get_next_id(),Queue(),self.model_params[self.top_model],self.game_params)
                 new_client.start()
-                print(f"Server started client id:{new_client.id}")
+                print(f"\n\tServer started client id:{new_client.id}\n")
 
                 #Keep track of in client list
                 self.clients.append(new_client)
@@ -308,8 +365,10 @@ class Server(Thread):
             except TimeoutError:
                 pass 
             
+            self.update_training_state()
+
             #Pass data to clients 
-            # self.update_clients()
+            self.update_clients()
 
             # #Recieve dtaa from clients
             # self.recieve_data_from_clients()
@@ -440,22 +499,19 @@ def handle_client(client_socket:socket.socket,address,idw,communication_var,job_
 
             #Next, send workload
             client_socket.send("New Game".encode())
-            print(f"sending workload")
+            #print(f"sending workload")
 
             #Receive the 'Start' signal 
             client_response         = client_socket.recv(32)
             experiences             = []
 
             #Recieve data until "End" signal
-            print(f"streaming data")
+            #print(f"streaming data")
             while True:
                 #Send go ahead 
                 client_socket.send("Send".encode())
-                print(f"\tSEND")
                 client_response     = client_socket.recv(32768).decode()
-                print(f"\t recieve {client_response[:10]}")
                 if client_response  == "End":
-                    print(f"Received END signal")
                     break 
                 else:
                     try:
@@ -468,8 +524,8 @@ def handle_client(client_socket:socket.socket,address,idw,communication_var,job_
                         input(f"ERROR continue?")
                         
 
-            print(f"ending data stream")
-            print(f"queue is {job_queue.qsize()}\n\n")
+            # print(f"ending data stream")
+            # print(f"queue is {job_queue.qsize()}\n\n")
 
             #client_socket.send("Kill".encode())
     except OSError:

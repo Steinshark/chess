@@ -25,9 +25,8 @@ model_list                  = {0:ChessModel2(19,24).cuda().state_dict()}
 
 #Used to play 1 game of model1 vs model2
 def showdown_match(args_package):
-    model1,model2,n_iters   = args_package
+    model1,model2,n_iters,max_game_ply  = args_package
     board           = chess.Board()
-    max_game_ply    = 200 
     
     engine1         = MCTree(max_game_ply=max_game_ply)
     engine1.load_dict(model1)
@@ -62,25 +61,28 @@ def showdown_match(args_package):
 
 
 
-def find_best_model():
-    top_model   = 0 
+def find_best_model(model_parameters_list:dict,max_game_ply,n_iters):
+    top_model           = 0 
+    top_model_params    =   model_parameters_list[list(model_parameters_list.keys())[0]]
 
-    for challenger in model_list[1:]:
+    for model_i in model_parameters_list:
+        challenger      = model_parameters_list[model_i]
 
         #Play 10 as W 
         with multiprocessing.Pool(4) as pool:
-            results_w           = pool.map(showdown_match,[(challenger,top_model,800) for _ in range(5)])
+            results_w           = pool.map(showdown_match,[(challenger,top_model_params,n_iters,max_game_ply) for _ in range(5)])
             challenger_wins     = list(results_w).count(1)
             champion_wins       = list(results_w).count(-1)
         #Play 10 as B
         with multiprocessing.Pool(4) as pool:
-            results_b           = pool.map(showdown_match,[(challenger,top_model,800) for _ in range(5)])
+            results_b           = pool.map(showdown_match,[(challenger,top_model,n_iters,max_game_ply) for _ in range(5)])
             challenger_wins     += list(results_w).count(-1)
             champion_wins       += list(results_w).count(1)
 
         #Set new champion for any number of better wins
         if champion_wins > challenger_wins:
-            top_model = challenger
+            top_model           = model_i
+            top_model_params    = challenger
     
     return top_model
 
