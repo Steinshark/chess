@@ -55,8 +55,18 @@ if sys.argv and "--model:" in "".join(sys.argv):
 else:
     MODEL   = model.ChessModel2
 
-    
+
+#Creates an instance of a Monte-Carlo style Tree
+#   to develop an evaluation of a given position, the tree
+#   functions as follows:
+#       - start at the root position (the one to be evaluated)
+#       - for n_iters:
+#       -   traverse the tree to the next best leaf
+#       -   expand the leaf and determine leaf's score 
+#       -   crawl back up the tree and update each parent node 
+#               of the explored leaf with the score  
 class MCTree:
+
 
     def __init__(self,from_fen="",max_game_ply=160):
 
