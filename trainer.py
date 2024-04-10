@@ -367,28 +367,28 @@ def perform_training(chess_model):
 if __name__ == '__main__':
 
 
-    # #Good model
-    # model1          = model.ChessModel2(19,24).cuda()
-    # model1.load_state_dict(torch.load("chess_model_iter3.dict"))
+    #Good model
+    model1          = model.ChessModel2(19,24).cuda()
+    model1.load_state_dict(torch.load("chess_model_iter3.dict"))
     
-    # #Bad model
-    # model2         = model.ChessModel2(19,24).cuda()
-    # model2.load_state_dict(torch.load("chess_model_iter2.dict"))
+    #Bad model
+    model2         = model.ChessModel2(19,24).cuda()
+    model2.load_state_dict(torch.load("chess_model_iter3.dict"))
 
 
-    # p1,l1           = check_vs_stockfish(model1)
-    # p2,l2           = check_vs_stockfish(model2)
+    p1,l1           = check_vs_stockfish(model1)
+    p2,l2           = check_vs_stockfish(model2)
 
-    # print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
 
-    # train_model(model1,chessExpDataSet("C:/gitrepos/chess/data2"),4096,.0001,wd=.01,n_epochs=2)
+    train_model(model1,chessExpDataSet("C:/gitrepos/chess/data3"),4096,.0001,wd=.01,n_epochs=4)
 
-    # p1,l1           = check_vs_stockfish(model1)
-    # p2,l2           = check_vs_stockfish(model2)
+    p1,l1           = check_vs_stockfish(model1)
+    p2,l2           = check_vs_stockfish(model2)
 
-    # print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
-    # torch.save(model1.state_dict(),"chess_model_iter3.dict")
-    # exit()
+    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
+    torch.save(model1.state_dict(),"chess_model_iter4.dict")
+    exit()
 
     one,two,draw    = matchup(20,torch.load("chess_model_iter3.dict"),torch.load("chess_model_iter2.dict"),n_iters=800)
 
