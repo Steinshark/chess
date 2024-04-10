@@ -2,6 +2,7 @@
 #Description: a GUI application to streamline all chess-related activities (train,play,observe)
 
 
+
 #Chess related
 import chess
 import chess.svg 

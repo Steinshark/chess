@@ -1,3 +1,8 @@
+#Author: Everett Stenberg
+#Description:   Acts as the nodes in the MCTree. Contains information about the position, 
+#               move, score, visit count, and other data  
+
+
 import chess
 import torch
 import chess_utils

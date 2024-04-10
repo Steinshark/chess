@@ -1,5 +1,8 @@
 #Author: Everett Stenberg
-#Description: a unified algorithm for train from start to finish
+#Description:   defines functions for training the network from
+#               start to finish
+
+
 
 import multiprocessing
 import multiprocessing.pool

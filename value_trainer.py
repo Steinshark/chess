@@ -1,3 +1,10 @@
+#Author: Everett Stenberg
+#Description:   Contains the code to train the neural networks each generation
+#               also provides various benchmarking and training functionality 
+#               for benchmarking model performance  and troubleshooting
+
+
+
 import torch 
 import model 
 import os 

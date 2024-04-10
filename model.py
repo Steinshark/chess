@@ -1,3 +1,8 @@
+#Author: Everett Stenberg
+#Description:   Contains various pytorch Neural Networks to act as the 
+#               board evaluation. ChessModel2 is the current one used  
+
+
 import torch 
 import chess_utils 
 
@@ -117,7 +122,7 @@ class ChessModel2(torch.nn.Module):
     def __init__(self,in_ch:int=19,n_channels:int=32):
 
         super(ChessModel2,self).__init__()
-
+        #n_channels is set to 24 currently 
         v_conv_n      = n_channels
         h_conv_n      = n_channels
         f_conv_n      = n_channels//2
