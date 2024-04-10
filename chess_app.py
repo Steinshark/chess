@@ -35,7 +35,7 @@ from pprint import pp
 #ML related
 import torch 
 import numpy
-import alg_train
+import net_chess
 from model import ChessModel2
 import mctree
 
@@ -43,53 +43,95 @@ import mctree
 import socket
 import threading
 from queue import Queue
-
-
 #Do stuff
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 sys.path.append("C:/gitrepos")
 
 
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
-
+comm_var                = "Normal"
 
 #DEFINITIONS FOR APP 
-def establish_client(client_socket:socket.socket,address,port,kill_var):
+def establish_client(client_socket:socket.socket,address,port,kill_var,model_dict,max_game_ply=50,n_iters=8):
+    print(f"establishing client")
     try:
         #Establish a TCP connection with the server
         print(f"created client, waiting for server instruction")
         client_socket.connect((address,port))
 
         #Recieve worker number
-        worker_id           = client_socket.recv(2048).decode()
-        print(f"Established connection to server as worker_id{worker_id}")
+        worker_id           = client_socket.recv(1024).decode()
+        print(f"Established connection to server as worker_id '{worker_id}'")
 
-        while True:
+        #Get Job
+        next_job            = net_chess.get_workload(client_socket)
+        while not next_job =="Kill":
+
             #Check for kill 
             if kill_var:
                 return
-            #Work section
-    except OSError:
-        pass
+            
+            #Generate data
+            game_experiences    = net_chess.play_game(model_dict,kill_var,max_game_ply,n_iters)
+            
+            #Feed back to server
+            net_chess.stream_exp_to_server(game_experiences,client_socket)
 
-def establish_server(server_socket:socket.socket,address,port,job_queue,kill_var):
+            #Check for work
+            next_job            = net_chess.get_workload(client_socket)
+
+    except OSError as e:
+        print(f"recieved error:\n{e}")
+        pass
+    client_socket.close()
+    print(f"exiting client")
+
+
+def establish_server(server_socket:socket.socket,address,port,job_queue,kill_var,comm_var):
 
     #Establish server
     print(f"addr to {address}<{type(address)}>")
     print(f"port to {port}<{type(port)}>")
     server_socket.bind((address,port))
-
+    server_socket.settimeout(1)
     #Start listening for connection
     server_socket.listen(16)
+    cur_id          = 0 
+    clients         = {}
+    sockets         = {}
+
+    counter         = 0
     try:
         while True:
 
             if kill_var:
                 return 
             
-            client_sock,address     =   server_socket.accept()
-            print(f"recieved client {client_sock}")
+            try:
+                client_sock,address     =   server_socket.accept()
+                print(f"recieved client {client_sock} - id:{cur_id}")
+            
+            
+                #Set client id 
+                client_id               = cur_id
+                cur_id                  += 1
+
+                #Save socket and start thread
+                sockets[client_id]      = client_sock
+                clients[client_id]      = threading.Thread(target=net_chess.handle_client,args=[sockets[client_id],address,client_id,comm_var])
+                clients[client_id].start()
+                print(f"started id:{client_id} thread")
+
+            except TimeoutError:
+                counter += 1
+                if counter == 10:
+                    print(f"CHANGE STATE")
+                    comm_var = "CHANGE STATE"
+                pass
+
     except OSError:
+        print(f"recieved ERROR")
+        exit()
         return
 
 
@@ -111,6 +153,7 @@ class ChessApp:
         #Window related variables
         self.window             = ThemedTk(theme='adapta')
         self.kill_var           = False
+        self.comm_var           = "Normal"
         print(f"created window")
         self.setup_window()
         
@@ -135,7 +178,7 @@ class ChessApp:
         def drag_action(event):
 
             if event.widget == self.window and not self.drag_action:
-                self.window.geometry(f"{800}x{600}") 
+                self.window.geometry(f"{400}x{50}") 
                 self.drag_action = True
 
         self.window.bind('<Configure>',drag_action)
@@ -267,7 +310,7 @@ class ChessApp:
         #Start up server 
         self.server_job_queue       = Queue()
         self.server_socket          = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        server_thread               = threading.Thread(target=establish_server,args=[self.server_socket,"localhost",15555,self.server_job_queue,self.kill_var])
+        server_thread               = threading.Thread(target=establish_server,args=[self.server_socket,"localhost",15555,self.server_job_queue,self.kill_var,self.comm_var])
         server_thread.start()
         self.server_thread          = server_thread
         print(f"started Server")
@@ -276,7 +319,7 @@ class ChessApp:
     def run_as_worker(self):
         wid                             = str(len(self.client_sockets))
         self.client_sockets[wid]        = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
-        client_thread                   = threading.Thread(target=establish_client,args=[self.client_sockets[wid],'localhost',15555,self.kill_var])
+        client_thread                   = threading.Thread(target=establish_client,args=[self.client_sockets[wid],'localhost',15555,self.kill_var,"chess_model_iter4.dict"])
         client_thread.start()
         self.client_threads[wid]        = client_thread
         print(f"started client thread")

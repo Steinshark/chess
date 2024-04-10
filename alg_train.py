@@ -15,6 +15,7 @@ from itertools import combinations
 from trainer import TrainerExpDataset
 from torch.utils.data import DataLoader
 import chess_utils
+from collections import OrderedDict
 
 n_training_iterations       = 10
 top_model                   = 0
@@ -84,8 +85,10 @@ def find_best_model():
     return top_model
 
 
-#Plays one game and returns all experiences from that game
-def play_game(model_dict,max_game_ply=160,n_iters=800):
+#Plays one game using the specified model and returns all experiences from that game
+#   max_game_ply is the max moves per game 
+#   n_iters is the number of iterations run by the MCTree to evaluate the position
+def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800):
 
     #Create board and tree
     engine              = MCTree(max_game_ply=max_game_ply)
@@ -95,6 +98,7 @@ def play_game(model_dict,max_game_ply=160,n_iters=800):
 
     #Play out game
     while result is None:
+
         #Evaluate move 
         move_probs      = engine.evaluate_root(n_iters=n_iters)
 
@@ -109,10 +113,10 @@ def play_game(model_dict,max_game_ply=160,n_iters=800):
                 top_move    = move 
                 top_visits  = n_visits
         
-        #Push move and update
+        #Push move to board and setup engine for next mve
         result          = engine.make_move(top_move)
 
-    #update game outcome
+    #update game outcome in set of experiences
     for i in range(len(game_experiences)):
         game_experiences[i][2]  = result
 
