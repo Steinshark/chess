@@ -9,7 +9,7 @@ import sys
 
 
 #Ensure local path exists
-DATAPATH        = "data3/"
+DATAPATH        = "data4/"
 if not os.path.exists(DATAPATH):
     os.mkdir(DATAPATH)
     
