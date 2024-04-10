@@ -122,7 +122,7 @@ if __name__ == "__main__":
     while True:
         t0          = time.time()
         n_games     = 1
-        n_moves     = generate_data(n_games,1000,uid,offset,max_game_ply=160,model_dict="chess_model_iter3.dict")    #Alphazero was trained with 800iters per search...
+        n_moves     = generate_data(n_games,1000,uid,offset,max_game_ply=160,model_dict="chess_model_iter4.dict")                               #Alphazero was trained with 800iters per search...
         print(f"\tplayed {n_games} in {(time.time()-t0):.2f}s -> {(time.time()-t0)/n_games:.2f}s/game\t{(time.time()-t0)/n_moves:.2f}s/move\n")
         offset      += 1
 
