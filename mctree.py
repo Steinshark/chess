@@ -1,3 +1,9 @@
+#Author: Everett Stenberg
+#Description:   The class that acts as the game engine. MCTree can conduct and iterative search 
+#               of the current chess position
+
+
+
 from node import Node 
 import chess 
 import time 
@@ -53,15 +59,21 @@ else:
 class MCTree:
 
     def __init__(self,from_fen="",max_game_ply=160):
+
+        #Check if a fen is provided, otherwise use the chess starting position
         if from_fen:
             self.board              = chess.Board(fen=from_fen)
         else:
             self.board              = chess.Board()
+
+        #Define the root node (the one that will be evaluatioed) and set 
+        #search variables
         self.root:Node              = Node(None,None,.2,0,self.board.turn) 
         self.curdepth               = 0 
         self.max_game_ply           = max_game_ply 
 
-        #Training vars
+        #Training vars (control exploration of the engine)
+        #   set these to 0 to perform an actual evaluation.
         self.dirichlet_a            = .3
         self.dirichlet_e            = .2 
 
@@ -75,6 +87,10 @@ class MCTree:
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
+    #Loads in the model to be used for evaluation 
+    #   Can either be:  - a state_dict of a torch.nn.Module 
+    #                   - a string specifying a file containing a state_dict
+    #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
         self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE)
 
@@ -102,7 +118,8 @@ class MCTree:
     #Perform one exploration down the tree
     #   If 'initial' is set, then add dirichlet noise to 
     #   children of the root node, which adds noise
-    #   when we want additional exploration
+    #   when we want additional exploration for training 
+    #   purposes
     def perform_iter(self,initial=False):
         
         #If initial and root already has pre-populated values, apply dirichelt before descending
@@ -236,10 +253,8 @@ class MCTree:
 
 
 
-
+#DEBUG puporses
 if __name__ == '__main__':
-    #print(f"root: {mcTree.root.is_leaf()}")
-    #print(f"{mcTree.board}")
     t0  = time.time()
     i       = 0
     gameboard   = chess.Board(fen="rnbq1kr1/1ppp1ppp/4p3/P4n2/2PP4/2N2NP1/1P2PPBP/R1BQK2R w KQ - 5 10")

@@ -1,3 +1,8 @@
+#Author: Everett Stenberg
+#Description:   a collection of functions to aid in chess-related things
+#               keeps other files cleaner
+
+
 import torch
 import numpy 
 import chess 

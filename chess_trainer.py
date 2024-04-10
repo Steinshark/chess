@@ -1,3 +1,8 @@
+#Author: Everett Stenberg
+#Description:   run to generate training data.  
+#               
+
+
 import chess_utils 
 import random 
 from mctree import MCTree
