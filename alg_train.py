@@ -188,20 +188,20 @@ def train_model(iter:int,chess_model:ChessModel2,experiences,bs=1024,lr=.001,wd=
         print(f"\t\tITER[{iter}]\tp_loss:{p_loss_out.detach().cpu().item():.4f}\n\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
 
 
+if __name__ == "__main__":
+    for iteration in range(n_training_iterations):
 
-for iteration in range(n_training_iterations):
+        #Generate training games
+        generation_experiences  = generate_training_games(model_list[top_model])
 
-    #Generate training games
-    generation_experiences  = generate_training_games(model_list[top_model])
-
-    #Initialize a clone of current top model and train on current experience set 
-    cur_gen_model           = ChessModel2(19,24).to(mctree.DEVICE).float().train()
-    cur_gen_model.load_state_dict(top_model)
-    train_model(iteration,cur_gen_model,generation_experiences)
-    model_list[iteration]   = cur_gen_model.state_dict()
-    
-    #Find current best model 
-    best_model              = find_best_model() 
+        #Initialize a clone of current top model and train on current experience set 
+        cur_gen_model           = ChessModel2(19,24).to(mctree.DEVICE).float().train()
+        cur_gen_model.load_state_dict(top_model)
+        train_model(iteration,cur_gen_model,generation_experiences)
+        model_list[iteration]   = cur_gen_model.state_dict()
+        
+        #Find current best model 
+        best_model              = find_best_model() 
 
 
-    input(f"gen: {iteration} done\n\ttop model: {top_model}")
+        input(f"gen: {iteration} done\n\ttop model: {top_model}")
