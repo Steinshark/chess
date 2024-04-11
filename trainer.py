@@ -14,7 +14,7 @@ DEVICE      = mctree.DEVICE
 
 class chessExpDataSet(Dataset):
 
-    def __init__(self,filepath:str,limit=1_000_000):
+    def __init__(self,filepath:str,limit=1_000_000,percent=1.0):
         
         self.fens           = [] 
         self.distros        = []
@@ -49,6 +49,9 @@ class chessExpDataSet(Dataset):
 
         #Shuffle data 
         random.shuffle(self.data)
+
+        #select percent 
+        self.data       = random.choices(self.data,k=int(len(self.data)*percent))
 
     def __getitem__(self,i:int):
         item    = self.data[i]
@@ -383,13 +386,13 @@ if __name__ == '__main__':
 
     print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
 
-    train_model(model1,chessExpDataSet("C:/gitrepos/chess/data3"),4096,.0001,wd=.01,n_epochs=4)
+    pls,vls     = train_model(model1,chessExpDataSet("C:/gitrepos/chess/data4",percent=.4),4096,.0002,wd=.01,n_epochs=4)
 
     p1,l1           = check_vs_stockfish(model1)
     p2,l2           = check_vs_stockfish(model2)
 
     print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
-    torch.save(model1.state_dict(),"chess_model_iter4.dict")
+    torch.save(model1.state_dict(),"chess_model_iter5.dict")
     exit()
 
     one,two,draw    = matchup(20,torch.load("chess_model_iter3.dict"),torch.load("chess_model_iter2.dict"),n_iters=800)
