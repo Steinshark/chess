@@ -242,6 +242,11 @@ class Client_Manager(Thread):
         self.lock                   = False
         self.game_mode              = "Train"
 
+        buffer                      = BytesIO()
+        torch.save(ChessModel2(19,24).state_dict(),buffer)
+        self.test_bytes_len         = len(buffer.getvalue())
+
+
 
     def is_alive(self):
         if not isinstance(self.client_address,socket.socket):
@@ -343,11 +348,16 @@ class Client_Manager(Thread):
 
         #Create a BytesIO buffer to load model into
         data_buffer             = BytesIO()
+
         torch.save(parameters,data_buffer)
 
         #Get bytes out of buffer
         params_as_bytes         = data_buffer.getvalue()
 
+        #Check params 
+        if not len(params_as_bytes) == self.test_bytes_len:
+            print(f"epic problem: {len(params_as_bytes)} vs {self.test_bytes_len}")
+            print(f"dict was {parameters}")
         #Send bytes to client
         self.client_socket.send(params_as_bytes)
 
@@ -438,6 +448,7 @@ class Client_Manager(Thread):
 
     def unlock(self):
         self.lock   = False
+
 
 
 #Handles the server (Aka in charge of the training algorithm)
