@@ -209,7 +209,7 @@ def check_vs_stockfish(chess_model:model.ChessModel):
     
     with torch.no_grad():
         
-        for experience in baseline_data:
+        for experience in baseline_data[:64]:
 
             #Get data
             board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()

@@ -40,9 +40,9 @@ else:
         device_id   = 0 
     else:
         if torch.cuda.utilization(0) < torch.cuda.utilization(1):
-            device_id = 1
-        else:
             device_id = 0
+        else:
+            device_id = 1
 
     DEVICE      = torch.device('cuda:'+str(device_id) if torch.cuda.is_available() else 'cpu')
 

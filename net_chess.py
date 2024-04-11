@@ -33,7 +33,7 @@ class Client(Thread):
         self.address                = address
         self.port                   = port 
         self.running                = True
-        
+        self.n_moves                = 0 
         #game related variables
         self.current_model_params   = None
         self.device_id              = device_id
@@ -53,13 +53,15 @@ class Client(Thread):
             
             #Recieve game type 
             self.receive_game_type()
+            print(f"received game type - {self.game_mode}")
 
             #Execute that game 
             self.execute_game()
+            print(f"\texecuted game")
 
          
     def receive_game_type(self):
-        game_type                   = self.client_socket.recv(32)
+        game_type                   = self.client_socket.recv(32).decode()
 
         if game_type == "Train":
             self.game_mode          = "Train"
@@ -92,7 +94,6 @@ class Client(Thread):
 
 
     def execute_game(self):
-
         if self.game_mode == "Train":
 
             #Get model params
@@ -105,8 +106,9 @@ class Client(Thread):
             n_iters                 = game_parameters['n_iters']
 
             #Run game 
+            t0                      = time.time()
             training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id)
-
+            print(f"\t{(time.time()-t0)/len(training_data):.2f}s/move")
             #Upload data
             self.upload_data(training_data,mode='Train')
         
@@ -121,7 +123,7 @@ class Client(Thread):
             n_iters                 = game_parameters['n_iters']
 
             #Run game 
-            game_outcome            = alg_train.showdown_match(model1_params,model2_params,max_game_ply,n_iters,self,self.device_id)
+            game_outcome            = alg_train.showdown_match((model1_params,model2_params,max_game_ply,n_iters))
         
             #Upload data
             self.upload_data(game_outcome,mode='Test')
@@ -220,7 +222,7 @@ class Client(Thread):
 #   to the Server 
 class Client_Manager(Thread):
 
-    def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params):
+    def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,test_params):
         super(Client_Manager,self).__init__()
         self.client_socket          = client_socket
         self.client_address         = address
@@ -228,9 +230,12 @@ class Client_Manager(Thread):
         self.queue                  = client_queue
         self.running                = True
 
-        self.top_model_params       = model_params
+        #Game vars 
         self.game_params            = game_params
+        self.test_params            = test_params
 
+        #Model vars 
+        self.top_model_params       = model_params
         self.model1_params          = None
         self.model2_params          = None
         self.in_game                = False
@@ -245,16 +250,16 @@ class Client_Manager(Thread):
     
 
     def recieve_model(self,new_model):
-        self.current_model_params    = new_model
+        self.top_model_params    = new_model
     
 
     def run_training_game(self):
 
         #Send model parameters to generate training data 
-        self.send_model_params(self.current_model_params)
+        self.send_model_params(self.top_model_params)
 
         #Send game parameters to play with
-        self.send_game_params(self.current_game_params)
+        self.send_game_params(self.game_params)
         
         #CLIENT PLAYS GAME 
 
@@ -269,7 +274,7 @@ class Client_Manager(Thread):
         self.send_model_params(self.model2_params)
 
         #Send game parameters to play with
-        self.send_game_params(self.current_game_params)
+        self.send_game_params(self.test_params)
 
         #CLIENT PLAYS GAME 
 
@@ -300,7 +305,7 @@ class Client_Manager(Thread):
                     self.set_lock()
 
                 while self.lock:
-                    time.sleep(.1)
+                    time.sleep(1)
                             
 
 
@@ -375,7 +380,16 @@ class Client_Manager(Thread):
 
             #Get and process result 
             outcome                 = int(self.client_socket.recv(32).decode())
-            self.queue.put(outcome)
+
+            #in the queue, put the data package
+            self.queue.put({'outcome':outcome,'players':(self.p1,self.p2),'uid':self.game_uid})
+
+            #Send last 'Ready' signal
+            self.client_socket.send("Ready".encode())
+
+            #Recieve 'End' signal
+            confirm_end             = self.client_socket.recv(32).decode()
+
         
         #if 'Experience', then will recieve a list of experiences
         elif game_mode == "Train":
@@ -402,9 +416,20 @@ class Client_Manager(Thread):
                     self.queue.put(client_response)
     
 
-    def recieve_test_params(self,model1_params,model2_params):
-        self.model1_params  = model1_params
-        self.model2_params  = model2_params
+    def recieve_test_game(self,game_packet):
+        self.p1             = game_packet[0]
+        self.p2             = game_packet[1]
+
+        self.model1_params  = game_packet[2]
+        self.model2_params  = game_packet[3]
+        self.game_uid       = game_packet[4]
+
+        #Set to test mode 
+        self.game_mode      = "Test"
+
+        #unlock and go for it 
+        self.unlock()
+        self.in_game        = True
 
 
     def set_lock(self):
@@ -412,7 +437,7 @@ class Client_Manager(Thread):
     
 
     def unlock(self):
-        self.lock   == False
+        self.lock   = False
 
 
 #Handles the server (Aka in charge of the training algorithm)
@@ -434,21 +459,21 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":50}
-        self.test_params                    = {"ply":160,"n_iters":500,'n_games':20}
+        self.game_params                    = {"ply":100,"n_iters":400}
+        self.test_params                    = {"ply":160,"n_iters":600,'n_games':8}
 
         #Training items 
         self.current_generation_data        = [] 
         self.train_thresh                   = 2048
         self.train_size                     = 768
-        self.bs                             = 128   
-        self.lr                             = .001 
+        self.bs                             = 256
+        self.lr                             = .01
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
         self.gen                            = 0 
 
-        self.update_iter                    = 30
+        self.update_iter                    = 10
         self.next_update_t                  = time.time() + self.update_iter
         self.game_stats                     = []
         self.lr_mult                        = .75      
@@ -503,7 +528,6 @@ class Server(Thread):
     
 
     def sync_all_clients(self):
-        print(f"locking")
         found_running_game  = True 
 
         while found_running_game:
@@ -515,15 +539,12 @@ class Server(Thread):
                 if client.in_game:
                     found_running_game  = True 
                 
-        print(f"all clients locked\n")
-
    
     def unsync_all_clients(self):
 
         #Unlock all clients
         for client in self.clients:
             client.lock                 = False 
-        print(f"all clients unlocked")
 
 
     def unlock_client(self,client:Client_Manager):
@@ -543,9 +564,6 @@ class Server(Thread):
 
         if time.time() - self.next_update_t > 0:    
             
-            #Prep for saving game outcomes
-            self.game_outcomes[self.gen]    = []
-
             #Add leading zeros to len
             cur_len_string              = str(len(self.current_generation_data))
             while len(cur_len_string) < len(str(self.train_thresh)):
@@ -553,15 +571,29 @@ class Server(Thread):
 
             print(f"\tGeneration [{self.gen}]:\t[{cur_len_string}/{self.train_thresh}] samples accumulated")
             self.next_update_t = time.time() + self.update_iter
+
+
         #Once over self.train_thresh, train and update model 
+        
         if len(self.current_generation_data) > self.train_thresh:
+            
             #Dont train until all games are done
             self.sync_all_clients()
+
+            #Snatch all experiences still in queues
+            for client in self.clients:
+                while not client.queue.empty():
+                    self.current_generation_data.append(client.queue.get())
+                
+
+
+            #Prep for saving game outcomes
+            self.game_outcomes[self.gen]    = []
 
             print(f"\n\n\tTraining Gen {self.gen}:\n")
             print(f"\tTRAIN PARAMS")
             print(f"\t\tbs:\t{self.bs}")
-            print(f"\t\tlr:\t{self.lr}")
+            print(f"\t\tlr:\t{self.lr:.4}")
             print(f"\t\tbetas:\t{self.betas}\n\n")
             #Select dataset to train on 
             training_batch                  = random.choices(self.current_generation_data,k=self.train_size)
@@ -579,9 +611,8 @@ class Server(Thread):
             p_losses,v_losses               = trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
             epoch                           = 0 
             for p,v in zip(p_losses,v_losses):
-                print(f"\t\tEPOCH [{epoch}]\n\t\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}\n")
+                print(f"\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}\n")
             self.model_params[self.gen+1]   = next_gen_model.state_dict()
-            print(f"\n")
 
             #View performance vs stockfish after 
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
@@ -589,12 +620,35 @@ class Server(Thread):
 
             #Find best model 
             print(f"\t\tMODEL SHOWDOWN\n")
-            self.top_model,matchups         = alg_train.find_best_model(self.model_params,40,50)
+
+            remaining_models                = [(id,self.model_params[id]) for id in self.model_params]
+            bracket                         = []
+            byes                            = []
+            self.create_test_bracket(remaining_models,bracket,byes)
+
+            while len(remaining_models) > 1:
+                outcomes,winners            = self.run_bracket(bracket)
+                remaining_models            = [(id,self.model_params[id]) for id in winners+byes]
+                bracket                     = []
+                byes                        = []
+                self.create_test_bracket(remaining_models,bracket,byes)
+
+            self.top_model                  = winners[0]
             print(f"\t\tTop Model: {self.top_model}")
-            for match in matchups:
+            for match in self.game_outcomes[self.gen]:
                 print(f"\t\t\t{match}")
             print("")
             self.gen                        += 1
+
+            #If params > 5, drop lowest id that didnt win 
+            if len(self.model_params) == 5:
+                id                          = 0
+
+                while not id in self.model_params or self.top_model == id:
+                    id += 1
+                print(f"\t dropped {id}")
+                del self.model_params[id]
+                
 
         
             #Reset training data pool
@@ -602,24 +656,8 @@ class Server(Thread):
             #Reduce lr 
             self.lr                         *= self.lr_mult
 
-            self.unsync_all_clients()
-    
-
-    #Will pass the test params to the next available client 
-    #   and return which client this is 
-    def pass_test_params_to_client(self,model1_params,model2_params):
-
-        passed_params                   = False
-
-        while not passed_params:
-            for client in self.clients:
-                #Pass only if locked and waiting
-                if client.lock:
-                    client.recieve_test_params(model1_params,model2_params)
-                    passed_params           = True 
-                    break 
-        return client
-    
+            self.return_client_to_train_state()
+            
 
     #Run the server
     def run(self):
@@ -632,7 +670,7 @@ class Server(Thread):
                 client_socket,addr      = self.server_socket.accept() 
                 
                 #Create and start client
-                new_client              = Client_Manager(client_socket,addr,self.get_next_id(),Queue(),self.model_params[self.top_model],self.game_params)
+                new_client              = Client_Manager(client_socket,addr,self.get_next_id(),Queue(),self.model_params[self.top_model],self.game_params,self.test_params)
                 new_client.start()
                 print(f"\n\tServer started client id:{new_client.id}\n")
 
@@ -651,37 +689,137 @@ class Server(Thread):
             # self.recieve_data_from_clients()
 
 
-    #Recursively create bracket and play out models 
-    #Model lists is a list of (id#,params) tuples 
-    def run_testing_games(self,model_lists):
-
-        if len(model_lists) > 2:
-            midpoint    = len(model_lists) //2 
-            winner1     = self.run_testing_games(model_lists[:midpoint])
-            winner2     = self.run_testing_games(model_lists[midpoint:])
-
-            return self.run_testing_games([winner1,winner2])
+    def create_test_bracket(self,remaining_models,game_packets,byes):
+        if len(remaining_models) > 2:
+            midpoint    = len(remaining_models) //2 
+            self.create_test_bracket(remaining_models[:midpoint],game_packets,byes)
+            self.create_test_bracket(remaining_models[midpoint:],game_packets,byes)
 
         else:
-            #if single item, return it as 'winner
-            if len(model_lists) == 1:
-                return model_lists[0] 
+            #if single item, then it has a bye
+            if len(remaining_models) == 1:
+                byes.append(remaining_models[0][0])
+                return
+            
             else:
+
+                #Create game_packets 
                 #Get data 
-                p1_id,p1_params     = model_lists[0]
-                p2_id,p2_params     = model_lists[1]
+                p1_id,p1_params     = remaining_models[0]
+                p2_id,p2_params     = remaining_models[1]
 
-                #Play games 
-                p1_wins,p2_wins     = alg_train.showdown_match(p1_params,p2_params,self.test_params['n_games'],self.test_params['ply'],self.test_params['n_iters'],self)
+                #Queue up half was W 
+                for _ in range(self.test_params['n_games']//2):
+                    game_packets.append((p1_id,p2_id,p1_params,p2_params,random.randint(10000,99999)))  #last item is games uid
+                for _ in range(self.test_params['n_games']//2):
+                    game_packets.append((p2_id,p1_id,p2_params,p1_params,random.randint(10000,99999)))
 
-                self.game_outcomes[self.gen].append(f"{p1_id}vs{p2_id}\t{p1_wins}:{p2_wins}|{self.test_params['n_games']-(p1_wins+p2_wins)}")
 
-                if p1_wins > p2_wins:
-                    return model_lists[0] 
-                
-                #Return second model on tie (no reason?...)
+    #Recursively create bracket and play out models 
+    #Model lists is a list of (id#,params) tuples 
+    def run_bracket(self,bracket:list):
+        print(f"running bracket")
+        #Keep track of games we need to hear back from 
+        outstanding_games       = [pack[-1] for pack in bracket]
+        game_results            = {}
+        player_to_key           = {}
+
+        #Create game results based on players 
+        for pack in bracket:
+            p1  = pack[0]
+            p2  = pack[1]
+
+            #Key will always be lowers number first 
+            key     = (p2,p1) if p1 > p2 else (p1,p2)
+
+            game_results[key]       = {p1:0,p2:0,'draws':0}
+            player_to_key[p1]       = key
+            player_to_key[p2]       = key
+
+
+        #Create queue of games to be played 
+        remaining_games         = Queue()
+        for game_packet in bracket:
+            remaining_games.put(game_packet)
+
+        
+        #While games remain, get a client manager to play them         
+        while bracket:
+            self.pass_test_game_to_client_manager(bracket.pop())
+
+        
+        #Wait for all games to finish 
+        while outstanding_games:
+
+            #Check for items in all clients queues 
+            finished_games      = [client.queue.get_nowait() for client in self.clients if client.queue.qsize()]
+
+            for game_data in finished_games:
+                outcome         = game_data['outcome']
+                players         = game_data['players']
+                uid             = game_data['uid']
+
+                #get key 
+                p1,p2           = players 
+
+                print(f"{game_data}")
+                #Keys must be in same order (i.e. 1v0 == 0v1), so key will always be lower number first 
+                #   if we end up switching the players to make the key, then the outcome is also opposite 
+                key     = (p2,p1) if p1 > p2 else (p1,p2)
+
+                #Update player stats
+                if outcome == 1:
+                    game_results[key][p1]       += 1
+
+                elif outcome == -1:
+                    game_results[key][p2]       += 1
                 else:
-                    return model_lists[1]
+                    game_results[key]['draws']  += 1
+
+
+                outstanding_games.remove(uid)
+        
+        matches         = {}
+        winners         = [] 
+        for matchup in game_results:
+            p1,p2           = matchup 
+
+            p1_wins         = game_results[matchup][p1]
+            p2_wins         = game_results[matchup][p2]
+
+            if p1_wins > p2_wins:
+                winners.append(p1)
+            else:
+                winners.append(p2)
+            
+
+        print(f"matches are {game_results}")
+        print(f"winners are {winners}")
+        return matches, winners
+
+
+    def pass_test_game_to_client_manager(self,game_packet):
+        passed_to_client                = False
+
+        while not passed_to_client:
+
+            for client in self.clients:
+
+                #Pass only if locked and waiting
+                if client.lock and not client.in_game:
+                    client.recieve_test_game(game_packet)
+                    passed_to_client    = True
+                    break 
+        return client
+
+
+    def return_client_to_train_state(self):
+        for client in self.clients:
+
+            client.game_mode        = "Train"
+            client.unlock()
+            client.in_game          = False
+
 
     def shutdown(self):
         self.running    =  False 
@@ -842,3 +980,19 @@ def handle_client(client_socket:socket.socket,address,idw,communication_var,job_
         print(f"Lost communication with client")
         return False
             
+
+
+if __name__ == "__main__":
+
+    server  = Server()
+
+    server.model_params[1] = ChessModel2(19,24).state_dict()
+    server.model_params[2] = ChessModel2(19,24).state_dict()
+    server.model_params[3] = ChessModel2(19,24).state_dict()
+    server.model_params[4] = ChessModel2(19,24).state_dict()
+    server.model_params[5] = ChessModel2(19,24).state_dict()
+    server.model_params[6] = ChessModel2(19,24).state_dict()
+
+    games   =    []
+    server.create_test_bracket([(i,server.model_params[i]) for i in server.model_params],games)
+    print([(pack[0],pack[1]) for pack in games])

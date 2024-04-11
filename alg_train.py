@@ -24,7 +24,11 @@ model_list                  = {0:ChessModel2(19,24).cuda().state_dict()}
 
 
 #Used to play 1 game of model1 vs model2
-def showdown_match(model_dict1:str|OrderedDict|torch.nn.Module,model_dict2:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
+def showdown_match(packet):
+    model_dict1:str|OrderedDict|torch.nn.Module = packet[0]
+    model_dict2:str|OrderedDict|torch.nn.Module = packet[1]
+    max_game_ply                                = packet[2]
+    n_iters                                     = packet[3]
     
     board           = chess.Board()
     
@@ -60,23 +64,24 @@ def showdown_match(model_dict1:str|OrderedDict|torch.nn.Module,model_dict2:str|O
         return 0
 
 
-def duel(model_dict1:str|OrderedDict|torch.nn.Module,model_dict2:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
+def duel(model_dict1:str|OrderedDict|torch.nn.Module,model_dict2:str|OrderedDict|torch.nn.Module,n_games=20,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
 
     #Play 10 as W 
     with multiprocessing.Pool(3) as pool:
-        results_w           = pool.map(showdown_match,[(model_dict1,model_dict2,n_iters,max_game_ply) for _ in range(n_games//2)])
+        results_w           = pool.map(showdown_match,[(model_dict1,model_dict2,max_game_ply,n_iters) for _ in range(n_games//2)])
         challenger_wins     = list(results_w).count(1)
         champion_wins       = list(results_w).count(-1)
     pool.close()
 
     #Play 10 as B
     with multiprocessing.Pool(3) as pool:
-        results_b           = pool.map(showdown_match,[(model_dict2,model_dict1,n_iters,max_game_ply) for _ in range(n_games//2)])
+        results_b           = pool.map(showdown_match,[(model_dict2,model_dict1,max_game_ply,n_iters) for _ in range(n_games//2)])
         challenger_wins     += list(results_b).count(-1)
         champion_wins       += list(results_b).count(1)
     pool.close()
 
     return challenger_wins,champion_wins
+    
     
 def find_best_model(model_params:dict,max_game_ply,n_iters):
     top_model           = 0 
