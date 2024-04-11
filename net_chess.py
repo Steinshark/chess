@@ -90,15 +90,24 @@ class Client(Thread):
         #Decode game parameters
         max_game_ply                = game_parameters['ply']
         n_iters                     = game_parameters['n_iters']
-
+        game_type                   = game_parameters['type']
+        
         #Play game 
-        training_data               = alg_train.play_game(self.current_model,
-                                                          max_game_ply=max_game_ply,
-                                                          n_iters=n_iters,
-                                                          wildcard=self,
-                                                          device_id=self.device_id)
+        if game_type == "Train":
+            training_data               = alg_train.play_game(self.current_model,max_game_ply,n_iters,self,self.device_id)
+            self.current_data_batch     = training_data
 
-        self.current_data_batch     = training_data
+        elif game_type == "Test":
+
+            #Will be recieving another model dict 
+            model_dict1                 = self.current_model_params
+            self.recieve_model_params()
+            model_dict2                 = self.current_model_params
+
+            game_outcome                = alg_train.showdown_match(model_dict1,model_dict2,max_game_ply,n_iters,self,self.device_id)
+            self.current_data_batch     = game_outcome
+            print(f"outcome was {self.current_data_batch}")
+
         print(f"finished game\n")
 
 
@@ -108,30 +117,36 @@ class Client(Thread):
         if not self.running:
             return 
         
-        #Alert server   
-        self.client_socket.send("Start".encode())
+        #If Result game, send only the outcome 
+        if len(self.current_data_batch) == 1:
+            self.client_socket.send("Result".encode())
+            self.client_socket.send(str(self.current_data_batch).encode())
 
-        #Send exps
-        for packet_i,exp in enumerate(self.current_data_batch):
+        #Otherwise send full list
+        else:
+            self.client_socket.send("Experience".encode())
+            
+            #Send exps
+            for packet_i,exp in enumerate(self.current_data_batch):
 
-            #Wait for "Ready" from server
-            confirm         = self.client_socket.recv(32).decode()
-            if not confirm == "Ready":
-                print(f"didnt get Send, got {confirm}")
-                break
+                #Wait for "Ready" from server
+                confirm         = self.client_socket.recv(32).decode()
+                if not confirm == "Ready":
+                    print(f"didnt get Send, got {confirm}")
+                    break
 
-            #separate fen,move_data,and outcome and 
-            #   json convert to strings to send over network
-            fen:str         = exp[0]
-            move_stats:str  = json.dumps(exp[1])
-            outcome:str     = str(exp[2])
+                #separate fen,move_data,and outcome and 
+                #   json convert to strings to send over network
+                fen:str         = exp[0]
+                move_stats:str  = json.dumps(exp[1])
+                outcome:str     = str(exp[2])
 
-            #Combine strings 
-            data_packet     = (fen,move_stats,outcome)
-            data_packet     = json.dumps(data_packet)
-            #encode to bytes and send to server 
-            self.client_socket.send(data_packet.encode())
-            #print(f"\tsent packet [{packet_i}/{len(game_experiences)}]")#DEBUG
+                #Combine strings 
+                data_packet     = (fen,move_stats,outcome)
+                data_packet     = json.dumps(data_packet)
+
+                #encode to bytes and send to server 
+                self.client_socket.send(data_packet.encode())
 
 
         #Receive the "Ready"
@@ -184,46 +199,17 @@ class Client_Manager(Thread):
 
             while self.running:
                 self.in_game            = True
+                
                 #Send model parameters to client 
-                #   serialize params to buffer, then send buffer    
-                buffer                  = BytesIO()
-                torch.save(self.current_model_params,buffer)
-                params_as_bytes         = buffer.getvalue()
-                #data_packet             = json.dumps(self.current_model_params)
-                self.client_socket.send(params_as_bytes)
-
-                #Get confirmation from client "Recieved"
-                self.client_socket.recv(32)
+                self.send_model_params(self.current_model_params)
 
                 #Send game parameters to client 
-                data_packet             = json.dumps(self.current_game_params)
-                self.client_socket.send(data_packet.encode())
-
+                self.send_game_params(self.current_game_params)
 
                 #   *CLIENT PLAYS GAME* 
 
-                #Receive the 'Start' signal 
-                client_response         = self.client_socket.recv(32)
-
-                #Recieve data until "End" signal
-                while True:
-                    #Send Ready Signal
-                    self.client_socket.send("Ready".encode())
-                    client_response     = self.client_socket.recv(32768).decode()
-                    if client_response  == "End":
-                        break 
-                    else:
-                        try:
-                            #Add experience to the experience queue to transfer
-                            #   back to server thread
-                            client_response = json.loads(client_response)
-
-                            #Clean back up            FEN                   MOVE_DISTR                      OUTCOME
-                            client_response = (client_response[0],json.loads(client_response[1]),float(client_response[2]))
-                            self.queue.put(client_response)
-                        except json.JSONDecodeError:
-                            print(f"ERROR IN DATAT recieved:\n{client_response}")
-                            input(f"ERROR continue?")
+                #Wait to get data from client
+                self.recieve_client_result()
                 
                 self.in_game                = False
 
@@ -236,12 +222,75 @@ class Client_Manager(Thread):
         except OSError:
             print(f"Lost communication with client")
             return False
-            pass
+            
+
+    def send_model_params(self,parameters:OrderedDict):
+
+        #Create a BytesIO buffer to load model into
+        data_buffer             = BytesIO()
+        torch.save(parameters,data_buffer)
+
+        #Get bytes out of buffer
+        params_as_bytes         = data_buffer.getvalue()
+
+        #Send bytes to client
+        self.client_socket.send(params_as_bytes)
+
+        #Get confirmation from client "Recieved"
+        self.client_socket.recv(32)
+
+
+    def send_game_params(self,parameters:dict):
+               
+        #Send game parameters to client 
+        data_packet                 = json.dumps(parameters)
+        self.client_socket.send(data_packet.encode())
 
 
     def shutdown(self):
         self.client_socket.close()
         self.running                = False
+
+
+    def recieve_client_result(self):
+
+        #Check what client is saying
+        response_type               = self.client_socket.recv(32).decode()
+
+        #If 'Result', then only outcome is sent
+        if response_type == "Result":
+
+            #Send 'Ready' to recieve
+            self.client_socket.send("Ready".encode())
+
+            #Get and process result 
+            outcome                 = int(self.client_socket.recv(32).decode())
+            self.queue.put(outcome)
+        
+        #if 'Experience', then will recieve a list of experiences
+        elif response_type == "Experience":
+
+            #Recieve data until "End" signal
+            while True:
+                
+                #Send 'Ready' to recieve and get next client response
+                self.client_socket.send("Ready".encode())
+                client_response     = self.client_socket.recv(32768).decode()
+
+                #Break if recieve 'End'
+                if client_response  == "End":
+                    break 
+
+                #Process data if else
+                else:
+                    #Add experience to the experience queue to transfer
+                    data_packet     = json.loads(client_response)
+                    #Re-convert             FEN                   MOVE_DISTR                      OUTCOME
+                    client_response = (data_packet[0],json.loads(data_packet[1]),float(data_packet[2]))
+                    
+                    #Place in the data queue for the Server thread to fetch 
+                    self.queue.put(client_response)
+
 
 
 
@@ -447,6 +496,26 @@ class Server(Thread):
 
             # #Recieve dtaa from clients
             # self.recieve_data_from_clients()
+
+
+    def run_testing_games(self):
+
+        #for each pairing in model dict 
+        top_model       = 0 
+        top_params      = self.model_params[0]
+        matches         = [] 
+        n_games         = 20 
+
+        for new_i,new_params in self.model_params.item():
+
+            #Skip first one 
+            if new_i == 0:
+                continue 
+
+            #Play all others
+            game_queue  = Queue()
+            for _ in range(n_games//2):
+                game_queue.put(())
 
 
 

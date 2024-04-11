@@ -24,14 +24,14 @@ model_list                  = {0:ChessModel2(19,24).cuda().state_dict()}
 
 
 #Used to play 1 game of model1 vs model2
-def showdown_match(args_package):
-    model1,model2,n_iters,max_game_ply  = args_package
+def showdown_match(model_dict1:str|OrderedDict|torch.nn.Module,model_dict2:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
+    
     board           = chess.Board()
     
     engine1         = MCTree(max_game_ply=max_game_ply)
-    engine1.load_dict(model1)
+    engine1.load_dict(model_dict1)
     engine2         = MCTree(max_game_ply=max_game_ply)
-    engine2.load_dict(model2)
+    engine2.load_dict(model_dict2)
 
     while not board.is_game_over() and (board.ply() <= max_game_ply):
 
