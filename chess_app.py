@@ -51,7 +51,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 WORKING_MODEL           = ChessModel2(19,24).cuda().state_dict()
 WORKING_MODEL_ID        = 0
-SERVER_IP               = '192.168.5.10'
+SERVER_IP               = '169.254.34.168'
 
 #A GUI program to make life easier
 class ChessApp:

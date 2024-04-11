@@ -492,6 +492,7 @@ class Server(Thread):
         self.server_socket.bind((address,port))
         self.server_socket.settimeout(.1)
         self.server_socket.listen(16)   #Accept up to 16 simultaneous connections
+        print(f"server listening on {address}")
 
 
     #Assign the next available client id
