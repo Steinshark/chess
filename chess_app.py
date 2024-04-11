@@ -51,7 +51,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 WORKING_MODEL           = ChessModel2(19,24).cuda().state_dict()
 WORKING_MODEL_ID        = 0
-
+SERVER_IP               = '192.168.5.10'
 
 #A GUI program to make life easier
 class ChessApp:
@@ -227,14 +227,14 @@ class ChessApp:
     #Run this as a server (handles training algorithm)
     def run_as_server(self):
 
-        self.server                 = net_chess.Server()
+        self.server                 = net_chess.Server(address=SERVER_IP)
         self.server.start()                 
         print(f"started Server")
     
 
     #Run this as a worker (Generates training data)
     def run_as_worker(self,device=None):
-        self.client                     = net_chess.Client(device_id=device)
+        self.client                     = net_chess.Client(device_id=device,address=SERVER_IP)
         self.client.start()
         print(f"started client thread\n\n")
 
