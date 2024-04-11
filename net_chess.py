@@ -37,6 +37,7 @@ class Client(Thread):
         #game related variables
         self.current_model_params   = None
         self.device_id              = device_id
+        self.game_mode              = "Train"
         print(f"creating client")
 
 
@@ -47,19 +48,28 @@ class Client(Thread):
         self.id                     = int(self.client_socket.recv(32).decode())
         print(f"\tworker connected with id:{self.id}")
     
-        #
+        #Do for forever until we die
         while self.running:
+            
+            #Recieve game type 
+            self.receive_game_type()
 
-            #Recieve a model_dictionary
-            self.recieve_model_params()
+            #Execute that game 
+            self.execute_game()
 
-            #Run a game
-            self.run_game()
-
-            #Return experiences 
-            self.upload_data()
          
-    
+    def receive_game_type(self):
+        game_type                   = self.client_socket.recv(32)
+
+        if game_type == "Train":
+            self.game_mode          = "Train"
+        elif game_type == "Test":
+            self.game_mode          = "Test"
+
+        #Acknowledge 
+        self.client_socket.send('Ready'.encode())
+
+
     def recieve_model_params(self):
 
         #Check not running 
@@ -71,16 +81,53 @@ class Client(Thread):
         buffer                      = BytesIO(data_packet)                 
         params_as_bytes             = buffer.getvalue()
         model_parameters            = torch.load(BytesIO(params_as_bytes))
-        #model_parameters            = json.loads(data_packet.decode())
 
         #attempt to instantiate model with them
         self.current_model          = ChessModel2(19,24).cuda()
         self.current_model.load_state_dict(model_parameters)
-        self.current_model_params   = model_parameters
-
         self.client_socket.send("Recieved".encode())
 
+        #Return the params 
+        return model_parameters
 
+
+    def execute_game(self):
+
+        if self.game_mode == "Train":
+
+            #Get model params
+            model_params            = self.recieve_model_params()
+
+            #Get game_params
+            data_packet             = self.client_socket.recv(1024).decode()
+            game_parameters         = json.loads(data_packet)
+            max_game_ply            = game_parameters['ply']
+            n_iters                 = game_parameters['n_iters']
+
+            #Run game 
+            training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id)
+
+            #Upload data
+            self.upload_data(training_data,mode='Train')
+        
+        elif self.game_mode == "Test":
+            model1_params           = self.recieve_model_params()
+            model2_params           = self.recieve_model_params()
+
+            #Get game_params
+            data_packet             = self.client_socket.recv(1024).decode()
+            game_parameters         = json.loads(data_packet)
+            max_game_ply            = game_parameters['ply']
+            n_iters                 = game_parameters['n_iters']
+
+            #Run game 
+            game_outcome            = alg_train.showdown_match(model1_params,model2_params,max_game_ply,n_iters,self,self.device_id)
+        
+            #Upload data
+            self.upload_data(game_outcome,mode='Test')
+
+
+    #DEPRECATED      
     def run_game(self):
         print(f"beginning game")
         #Recieve 1024 bytes of data 
@@ -91,7 +138,12 @@ class Client(Thread):
         max_game_ply                = game_parameters['ply']
         n_iters                     = game_parameters['n_iters']
         game_type                   = game_parameters['type']
+
+        #Run game 
+        training_data               = alg_train.play_game(self.current_model,max_game_ply,n_iters,self,self.device_id)
         
+        #Upload 
+
         #Play game 
         if game_type == "Train":
             training_data               = alg_train.play_game(self.current_model,max_game_ply,n_iters,self,self.device_id)
@@ -111,23 +163,24 @@ class Client(Thread):
         print(f"finished game\n")
 
 
-    def upload_data(self):
+    def upload_data(self,data,mode='Train'):
         
         #Check for dead 
         if not self.running:
             return 
         
         #If Result game, send only the outcome 
-        if len(self.current_data_batch) == 1:
-            self.client_socket.send("Result".encode())
-            self.client_socket.send(str(self.current_data_batch).encode())
+        if mode == 'Test':
+            self.client_socket.send(mode.encode())
+            self.client_socket.recv(32)             #Get "Ready"
+            self.client_socket.send(str(data).encode())
 
         #Otherwise send full list
-        else:
-            self.client_socket.send("Experience".encode())
+        elif mode == 'Train':
+            self.client_socket.send(mode.encode())
             
             #Send exps
-            for packet_i,exp in enumerate(self.current_data_batch):
+            for packet_i,exp in enumerate(data):
 
                 #Wait for "Ready" from server
                 confirm         = self.client_socket.recv(32).decode()
@@ -149,7 +202,7 @@ class Client(Thread):
                 self.client_socket.send(data_packet.encode())
 
 
-        #Receive the "Ready"
+        #Receive the last "Ready"
         confirm         = self.client_socket.recv(32).decode()
 
         #Let server know thats it
@@ -175,10 +228,14 @@ class Client_Manager(Thread):
         self.queue                  = client_queue
         self.running                = True
 
-        self.current_model_params   = model_params
-        self.current_game_params    = game_params
+        self.top_model_params       = model_params
+        self.game_params            = game_params
+
+        self.model1_params          = None
+        self.model2_params          = None
         self.in_game                = False
         self.lock                   = False
+        self.game_mode              = "Train"
 
 
     def is_alive(self):
@@ -191,27 +248,56 @@ class Client_Manager(Thread):
         self.current_model_params    = new_model
     
 
+    def run_training_game(self):
+
+        #Send model parameters to generate training data 
+        self.send_model_params(self.current_model_params)
+
+        #Send game parameters to play with
+        self.send_game_params(self.current_game_params)
+        
+        #CLIENT PLAYS GAME 
+
+        #Receive training data from game 
+        self.recieve_client_result()
+
+
+    def run_test_game(self):
+        
+        #send both model params 
+        self.send_model_params(self.model1_params)
+        self.send_model_params(self.model2_params)
+
+        #Send game parameters to play with
+        self.send_game_params(self.current_game_params)
+
+        #CLIENT PLAYS GAME 
+
+        #Receive training data from game 
+        self.recieve_client_result()
+
+    
     def run(self):
         try:
+    
             #First, send job worker id to client 
             self.client_socket.send(str(self.id).encode())
 
-
             while self.running:
                 self.in_game            = True
-                
-                #Send model parameters to client 
-                self.send_model_params(self.current_model_params)
 
-                #Send game parameters to client 
-                self.send_game_params(self.current_game_params)
+                #Send type of game 
+                self.send_game_type()
 
-                #   *CLIENT PLAYS GAME* 
-
-                #Wait to get data from client
-                self.recieve_client_result()
+                #Execute game and get results
+                self.run_game_type()
                 
                 self.in_game                = False
+
+
+                #If client_manager is in a 'Test' mode, then lock after each game 
+                if self.game_mode == 'Test':
+                    self.set_lock()
 
                 while self.lock:
                     time.sleep(.1)
@@ -224,6 +310,30 @@ class Client_Manager(Thread):
             return False
             
 
+    def send_game_type(self):
+
+        #Send text to client 
+        self.client_socket.send(self.game_mode.encode())
+
+        #Get confirmation
+        confirmation            = self.client_socket.recv(32).decode()
+
+        if not confirmation == "Ready":
+            print(f"\tClient did not confirm game mode: '{confirmation}'")
+
+
+    def run_game_type(self):
+        
+        if self.game_mode == "Train":
+            self.run_training_game()
+
+        elif self.game_mode == "Test":
+            self.run_test_game()
+
+        else:
+            print(f"\tbad game_mode: '{self.game_mode}")
+    
+    
     def send_model_params(self,parameters:OrderedDict):
 
         #Create a BytesIO buffer to load model into
@@ -255,10 +365,10 @@ class Client_Manager(Thread):
     def recieve_client_result(self):
 
         #Check what client is saying
-        response_type               = self.client_socket.recv(32).decode()
+        game_mode                   = self.client_socket.recv(32).decode()
 
         #If 'Result', then only outcome is sent
-        if response_type == "Result":
+        if game_mode == "Test":
 
             #Send 'Ready' to recieve
             self.client_socket.send("Ready".encode())
@@ -268,7 +378,7 @@ class Client_Manager(Thread):
             self.queue.put(outcome)
         
         #if 'Experience', then will recieve a list of experiences
-        elif response_type == "Experience":
+        elif game_mode == "Train":
 
             #Recieve data until "End" signal
             while True:
@@ -290,8 +400,19 @@ class Client_Manager(Thread):
                     
                     #Place in the data queue for the Server thread to fetch 
                     self.queue.put(client_response)
+    
+
+    def recieve_test_params(self,model1_params,model2_params):
+        self.model1_params  = model1_params
+        self.model2_params  = model2_params
 
 
+    def set_lock(self):
+        self.lock   = True 
+    
+
+    def unlock(self):
+        self.lock   == False
 
 
 #Handles the server (Aka in charge of the training algorithm)
@@ -314,6 +435,7 @@ class Server(Thread):
         self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
         self.top_model                      = 0 
         self.game_params                    = {"ply":100,"n_iters":50}
+        self.test_params                    = {"ply":160,"n_iters":500,'n_games':20}
 
         #Training items 
         self.current_generation_data        = [] 
@@ -329,7 +451,9 @@ class Server(Thread):
         self.update_iter                    = 30
         self.next_update_t                  = time.time() + self.update_iter
         self.game_stats                     = []
-        self.lr_mult                        = .75             
+        self.lr_mult                        = .75      
+
+        self.game_outcomes                  = {}       
 
 
     def build_socket(self,address,port):
@@ -353,10 +477,12 @@ class Server(Thread):
         return candidate_id
     
 
+    #Updates clients with the most recent parameters and 
     def update_clients(self):
         
         hitlist         = [] 
         for client_index,client in enumerate(self.clients):
+
             #Check client is alive 
             if not client.running:
                 hitlist.append(client_index)
@@ -400,6 +526,14 @@ class Server(Thread):
         print(f"all clients unlocked")
 
 
+    def unlock_client(self,client:Client_Manager):
+        client.lock         = False 
+    
+
+    def lock_client(self,client:Client_Manager):
+        client.lock         = True
+
+
     def update_training_state(self):
 
         #Snatch all experiences still in queues
@@ -408,6 +542,9 @@ class Server(Thread):
                 self.current_generation_data.append(client.queue.get())
 
         if time.time() - self.next_update_t > 0:    
+            
+            #Prep for saving game outcomes
+            self.game_outcomes[self.gen]    = []
 
             #Add leading zeros to len
             cur_len_string              = str(len(self.current_generation_data))
@@ -467,7 +604,23 @@ class Server(Thread):
 
             self.unsync_all_clients()
     
+
+    #Will pass the test params to the next available client 
+    #   and return which client this is 
+    def pass_test_params_to_client(self,model1_params,model2_params):
+
+        passed_params                   = False
+
+        while not passed_params:
+            for client in self.clients:
+                #Pass only if locked and waiting
+                if client.lock:
+                    client.recieve_test_params(model1_params,model2_params)
+                    passed_params           = True 
+                    break 
+        return client
     
+
     #Run the server
     def run(self):
         
@@ -498,26 +651,37 @@ class Server(Thread):
             # self.recieve_data_from_clients()
 
 
-    def run_testing_games(self):
+    #Recursively create bracket and play out models 
+    #Model lists is a list of (id#,params) tuples 
+    def run_testing_games(self,model_lists):
 
-        #for each pairing in model dict 
-        top_model       = 0 
-        top_params      = self.model_params[0]
-        matches         = [] 
-        n_games         = 20 
+        if len(model_lists) > 2:
+            midpoint    = len(model_lists) //2 
+            winner1     = self.run_testing_games(model_lists[:midpoint])
+            winner2     = self.run_testing_games(model_lists[midpoint:])
 
-        for new_i,new_params in self.model_params.item():
+            return self.run_testing_games([winner1,winner2])
 
-            #Skip first one 
-            if new_i == 0:
-                continue 
+        else:
+            #if single item, return it as 'winner
+            if len(model_lists) == 1:
+                return model_lists[0] 
+            else:
+                #Get data 
+                p1_id,p1_params     = model_lists[0]
+                p2_id,p2_params     = model_lists[1]
 
-            #Play all others
-            game_queue  = Queue()
-            for _ in range(n_games//2):
-                game_queue.put(())
+                #Play games 
+                p1_wins,p2_wins     = alg_train.showdown_match(p1_params,p2_params,self.test_params['n_games'],self.test_params['ply'],self.test_params['n_iters'],self)
 
+                self.game_outcomes[self.gen].append(f"{p1_id}vs{p2_id}\t{p1_wins}:{p2_wins}|{self.test_params['n_games']-(p1_wins+p2_wins)}")
 
+                if p1_wins > p2_wins:
+                    return model_lists[0] 
+                
+                #Return second model on tie (no reason?...)
+                else:
+                    return model_lists[1]
 
     def shutdown(self):
         self.running    =  False 
