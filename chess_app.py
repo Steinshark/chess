@@ -228,7 +228,8 @@ class ChessApp:
     def run_as_server(self):
 
         self.server                 = net_chess.Server(address=SERVER_IP)
-        self.server.start()                 
+        self.server.load_models()       
+        self.server.start()          
         print(f"started Server")
     
 

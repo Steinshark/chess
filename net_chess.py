@@ -17,9 +17,9 @@ import alg_train
 from io import BytesIO
 import random
 import trainer 
-
+from copy import deepcopy
 import time 
-
+import os
 
 #Runs on the client machine and generates training data 
 #   by playing games againts itself
@@ -38,7 +38,7 @@ class Client(Thread):
         self.current_model_params   = None
         self.device_id              = device_id
         self.game_mode              = "Train"
-        print(f"creating client")
+        print(f"creating client - connecting to {(address,port)}")
 
 
     def run(self):
@@ -46,7 +46,7 @@ class Client(Thread):
         #Initialize the connection with the server and receive id
         self.client_socket.connect((self.address,self.port))
         self.id                     = int(self.client_socket.recv(32).decode())
-        print(f"\tworker connected with id:{self.id}")
+        print(f"\tconnected to server with id:{self.id}")
     
         #Do for forever until we die
         while self.running:
@@ -243,7 +243,7 @@ class Client_Manager(Thread):
         self.game_mode              = "Train"
 
         buffer                      = BytesIO()
-        torch.save(ChessModel2(19,24).state_dict(),buffer)
+        torch.save(ChessModel2(19,24).cpu().state_dict(),buffer)
         self.test_bytes_len         = len(buffer.getvalue())
 
 
@@ -349,15 +349,16 @@ class Client_Manager(Thread):
         #Create a BytesIO buffer to load model into
         data_buffer             = BytesIO()
 
-        torch.save(parameters,data_buffer)
+        #Create copy of parameters 
+        parameters_copy         = deepcopy(parameters)
+
+        torch.save(parameters_copy,data_buffer)
 
         #Get bytes out of buffer
         params_as_bytes         = data_buffer.getvalue()
 
-        #Check params 
-        if not len(params_as_bytes) == self.test_bytes_len:
-            print(f"epic problem: {len(params_as_bytes)} vs {self.test_bytes_len}")
-            print(f"dict was {parameters}")
+        #print(f"sending {len(params_as_bytes)} bytes")
+
         #Send bytes to client
         self.client_socket.send(params_as_bytes)
 
@@ -466,18 +467,19 @@ class Server(Thread):
         self.build_socket(address,port)
 
         self.running                        = True 
+        self.test_mode                      = False
 
         #Model items 
-        self.model_params                   = {0:ChessModel2(19,24).cuda().state_dict()}
+        self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":400}
+        self.game_params                    = {"ply":15,"n_iters":75}
         self.test_params                    = {"ply":160,"n_iters":600,'n_games':8}
 
         #Training items 
         self.current_generation_data        = [] 
-        self.train_thresh                   = 2048
-        self.train_size                     = 768
-        self.bs                             = 256
+        self.train_thresh                   = 256
+        self.train_size                     = 64
+        self.bs                             = 32
         self.lr                             = .01
         self.wd                             = .01 
         self.betas                          = (.5,.8)
@@ -492,6 +494,43 @@ class Server(Thread):
         self.game_outcomes                  = {}       
 
 
+    #Run the server
+    def run(self):
+        
+        #Always on 
+        while self.running:
+
+            #Check for a new client
+            self.check_for_clients()
+
+            #Update server training state
+            self.update_training_state()
+
+            #Pass data to clients 
+            self.update_clients()
+
+
+    #Load the most recent models
+    def load_models(self):
+        
+        #Load all gen_x.dict files
+        filenames                   = [file for file in os.listdir() if "gen" in file and ".dict" in file]
+
+        #Find the top 5, and assume most recent is best model
+        filenames.sort(key=lambda x: int(x.replace('gen_','').replace('.dict','')),reverse=True)
+        top_params                  = filenames[:5]
+
+        #build param list 
+        self.model_params           = {int(fname.replace('gen_','').replace('.dict','')):torch.load(fname) for fname in top_params}
+        self.top_model              = max(self.model_params)
+        
+        #set current gen to max of params + 1 
+        self.gen                    = max(self.model_params) + 1
+        print(f"\tServer loaded state_dicts {list(self.model_params.keys())}")
+
+
+    #Creates the server socket and sets 
+    #   various server settings
     def build_socket(self,address,port):
         
         #Set class vars
@@ -533,12 +572,8 @@ class Server(Thread):
         pass 
 
 
-    def recieve_data_from_clients(self):
-        for client in self.clients:
-            continue
-        pass
-    
-
+    #Blocks until all clients have finished their game and 
+    #   the client_managers have passed them back to the server
     def sync_all_clients(self):
         found_running_game  = True 
 
@@ -552,21 +587,17 @@ class Server(Thread):
                     found_running_game  = True 
                 
    
+   #Unblocks client managers and lets them generate games 
+   #    until sync'd again
     def unsync_all_clients(self):
 
         #Unlock all clients
         for client in self.clients:
-            client.lock                 = False 
+            client.unlock()
 
 
-    def unlock_client(self,client:Client_Manager):
-        client.lock         = False 
-    
-
-    def lock_client(self,client:Client_Manager):
-        client.lock         = True
-
-
+    #Add experiences to server's list and 
+    #   Check if its time to train 
     def update_training_state(self):
 
         #Snatch all experiences still in queues
@@ -588,6 +619,9 @@ class Server(Thread):
         #Once over self.train_thresh, train and update model 
         
         if len(self.current_generation_data) > self.train_thresh:
+            
+            #Set in test mode
+            self.test_mode                  = True 
             
             #Dont train until all games are done
             self.sync_all_clients()
@@ -612,7 +646,7 @@ class Server(Thread):
             training_dataset                = trainer.TrainerExpDataset(training_batch)
 
             #Clone current best model 
-            next_gen_model                  = ChessModel2(19,24).cuda()
+            next_gen_model                  = ChessModel2(19,24).cpu()              #Always pass stuff on the cpu
             next_gen_model.load_state_dict(self.model_params[self.top_model])
 
             #View performance vs stockfish before
@@ -624,7 +658,7 @@ class Server(Thread):
             epoch                           = 0 
             for p,v in zip(p_losses,v_losses):
                 print(f"\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}\n")
-            self.model_params[self.gen+1]   = next_gen_model.state_dict()
+            self.model_params[self.gen+1]   = next_gen_model.cpu().state_dict()
 
             #View performance vs stockfish after 
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
@@ -667,40 +701,48 @@ class Server(Thread):
             self.current_generation_data    = []
             #Reduce lr 
             self.lr                         *= self.lr_mult
-
+            
+            #Save models 
+            torch.save(self.model_params[self.top_model],f"gen_{self.gen}.dict")
+            self.test_mode                  = False
             self.return_client_to_train_state()
             
 
-    #Run the server
-    def run(self):
-        
-        #ALways on 
-        while self.running:
+    #Performs the work of checking if a new client is looking
+    #   to connect
+    def check_for_clients(self):
 
-            #Check for a new client
-            try:
-                client_socket,addr      = self.server_socket.accept() 
-                
-                #Create and start client
-                new_client              = Client_Manager(client_socket,addr,self.get_next_id(),Queue(),self.model_params[self.top_model],self.game_params,self.test_params)
-                new_client.start()
-                print(f"\n\tServer started client id:{new_client.id}\n")
+        try:
 
-                #Keep track of in client list
-                self.clients.append(new_client)
-                
-            except TimeoutError:
-                pass 
+            #Look for a connecting client 
+            client_socket,addr              = self.server_socket.accept() 
+
+            #Create a new client_manager for them 
+            new_client_manager                  = Client_Manager(client_socket,
+                                                         addr,
+                                                         self.get_next_id(),
+                                                         Queue(),
+                                                         self.model_params[self.top_model],
+                                                         self.game_params,
+                                                         self.test_params)
             
-            self.update_training_state()
+            #If were in test mode, make sure to let client_manager know 
+            if self.test_mode:
+                new_client_manager.game_mode    = 'Test'
+                new_client_manager.set_lock()
 
-            #Pass data to clients 
-            self.update_clients()
+            #Add to clients list 
+            self.clients.append(new_client_manager)
+            #Start em up
+            new_client_manager.start()
+        
+        except TimeoutError:
+            pass
 
-            # #Recieve dtaa from clients
-            # self.recieve_data_from_clients()
 
-
+    #Creates a bracket of all remaining models that 
+    #   will be run. called several times until 1 model remains.
+    #   this one is used for data generation 
     def create_test_bracket(self,remaining_models,game_packets,byes):
         if len(remaining_models) > 2:
             midpoint    = len(remaining_models) //2 
@@ -730,7 +772,7 @@ class Server(Thread):
     #Recursively create bracket and play out models 
     #Model lists is a list of (id#,params) tuples 
     def run_bracket(self,bracket:list):
-        print(f"running bracket")
+
         #Keep track of games we need to hear back from 
         outstanding_games       = [pack[-1] for pack in bracket]
         game_results            = {}
@@ -757,11 +799,15 @@ class Server(Thread):
         
         #While games remain, get a client manager to play them         
         while bracket:
+            
+            #Pass next game to the next available client
             self.pass_test_game_to_client_manager(bracket.pop())
 
         
-        #Wait for all games to finish 
-        while outstanding_games:
+        #Wait for all games to finish but not longer than 'reset' seconds
+        t0                      = time.time()
+        reset                   = 250
+        while outstanding_games and (time.time()-t0) < reset:
 
             #Check for items in all clients queues 
             finished_games      = [client.queue.get_nowait() for client in self.clients if client.queue.qsize()]
@@ -774,7 +820,6 @@ class Server(Thread):
                 #get key 
                 p1,p2           = players 
 
-                print(f"{game_data}")
                 #Keys must be in same order (i.e. 1v0 == 0v1), so key will always be lower number first 
                 #   if we end up switching the players to make the key, then the outcome is also opposite 
                 key     = (p2,p1) if p1 > p2 else (p1,p2)
@@ -790,6 +835,9 @@ class Server(Thread):
 
 
                 outstanding_games.remove(uid)
+
+                #Reset time 
+                t0                  = time.time()
         
         matches         = {}
         winners         = [] 
@@ -805,16 +853,22 @@ class Server(Thread):
                 winners.append(p2)
             
 
-        print(f"matches are {game_results}")
-        print(f"winners are {winners}")
+        print(f"\tmatches are {game_results}")
         return matches, winners
 
 
+    #Give a game_packet to a client manager for it's client 
+    #   to play out and return back 
+    #
     def pass_test_game_to_client_manager(self,game_packet):
         passed_to_client                = False
 
         while not passed_to_client:
+            
+            #Check for new clients here 
+            self.check_for_clients()
 
+            #Give to client if one is available 
             for client in self.clients:
 
                 #Pass only if locked and waiting
@@ -822,9 +876,13 @@ class Server(Thread):
                     client.recieve_test_game(game_packet)
                     passed_to_client    = True
                     break 
+
         return client
 
 
+
+    #Return clients to generate training games 
+    #   after determining top model 
     def return_client_to_train_state(self):
         for client in self.clients:
 

@@ -69,13 +69,17 @@ class TrainerExpDataset(Dataset):
         self.z_vals         = [] 
 
         for item in experiences:
-            fen             = item[0]
-            distribution    = item[1]
-            game_outcome    = item[2]
 
-            self.fens.append(fen)
-            self.distros.append(distribution)
-            self.z_vals.append(game_outcome)
+            try:
+                fen             = item[0]
+                distribution    = item[1]
+                game_outcome    = item[2]
+
+                self.fens.append(fen)
+                self.distros.append(distribution)
+                self.z_vals.append(game_outcome)
+            except KeyError:
+                pass
 
         self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
         
@@ -191,6 +195,7 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
         v_ep_loss.append(v_loss_out)
         #print(f"\t\t\tp_loss:{p_loss_out.detach().cpu().item():.4f}\t\tv_loss:{v_loss_out.detach().cpu().item():.4f}\n")
         return p_ep_loss,v_ep_loss
+
 
 def check_vs_stockfish(chess_model:model.ChessModel):
 
