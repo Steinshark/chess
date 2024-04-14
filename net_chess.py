@@ -21,6 +21,18 @@ from copy import deepcopy
 import time 
 import os
 
+
+#Colorful display on terminal
+class Color:
+    os.system("")
+    blue    = '\033[94m'
+    tan     = '\033[93m'
+    green   = '\033[92m'
+    red     = '\033[91m'
+    bold    = '\033[1m'
+    end     = '\033[0m'    
+
+
 #Runs on the client machine and generates training data 
 #   by playing games againts itself
 class Client(Thread):
@@ -52,18 +64,18 @@ class Client(Thread):
         #Initialize the connection with the server and receive id
         self.client_socket.connect((self.address,self.port))
         self.id                     = int(self.client_socket.recv(32).decode())
-        print(f"\tclient connected to {self.address} with id:{self.id}")
+        print(f"\t{Color.green}client connected to {Color.tan}{self.address}{Color.green} with id:{self.id}{Color.end}")
     
         #Do for forever until we die
         while self.running:
             
             #Recieve game type 
             self.receive_game_type()
-            print(f"\n\trecieved game type - {self.game_mode}")
+            print(f"\n\t{Color.tan}recieved game type - {self.game_mode}{Color.end}")
 
             #Execute that game 
             self.execute_game()
-            print(f"\texecuted game")
+            print(f"\t{Color.tan}executed game{Color.end}")
 
 
     #Gets the game type from client_manager
@@ -125,7 +137,7 @@ class Client(Thread):
             #Run game 
             t0                      = time.time()
             training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device,self.lookup_dict)
-            print(f"\t{(time.time()-t0)/len(training_data):.2f}s/move")
+            print(f"\t{Color.tan}{(time.time()-t0)/len(training_data):.2f}s/move{Color.end}")
             
             #Upload data
             self.upload_data(training_data,mode='Train')
@@ -210,7 +222,7 @@ class Client(Thread):
                 #Wait for "Ready" from server
                 confirm         = self.client_socket.recv(32).decode()
                 if not confirm == "Ready":
-                    print(f"didnt get Send, got {confirm}")
+                    print(f"{Color.red}didnt get Send, got {confirm}{Color.end}")
                     break
 
                 #separate fen,move_data,and outcome and 
@@ -267,7 +279,7 @@ class Client_Manager(Thread):
         self.lock                   = False
         self.game_mode              = "Train"
 
-        print(f"\n\tlaunched a new client manager for {self.client_address}\n")
+        print(f"\n\t{Color.green}launched a new client manager for {Color.tan}{self.client_address}\n{Color.end}")
 
 
     def is_alive(self):
@@ -338,7 +350,7 @@ class Client_Manager(Thread):
 
                 #client_socket.send("Kill".encode())
         except OSError:
-            print(f"Lost communication with client")
+            print(f"\n\t{Color.red}Lost communication with client{Color.end}")
             return False
             
 
@@ -355,7 +367,7 @@ class Client_Manager(Thread):
         confirmation            = self.client_socket.recv(32).decode()
 
         if not confirmation == "Ready":
-            print(f"\tClient did not confirm game mode: '{confirmation}'")
+            print(f"\t{Color.red}Client did not confirm game mode: '{confirmation}'{Color.end}")
 
 
     def run_game_type(self):
@@ -370,7 +382,7 @@ class Client_Manager(Thread):
             self.run_training_game()
 
         else:
-            print(f"\tbad game_mode: '{self.game_mode}")
+            print(f"\t{Color.red}bad game_mode: '{self.game_mode}{Color.end}")
     
     
     def send_model_params(self,parameters:OrderedDict):
@@ -510,7 +522,7 @@ class Server(Thread):
         self.train_thresh                   = 8192
         self.train_size                     = 4096+2048
         self.bs                             = 2048
-        self.lr                             = .001
+        self.lr                             = .005
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
@@ -547,7 +559,7 @@ class Server(Thread):
         #Load all gen_x.dict files
         filenames                   = [file for file in os.listdir("generations/") if "gen" in file and ".dict" in file]
         if not filenames:
-            print(f"\tServer loaded no state_dicts")
+            print(f"\t{Color.tan}Server loaded no state_dicts{Color.end}")
             return
         #Find the top 5, and assume most recent is best model
         filenames.sort(key=lambda x: int(x.replace('gen_','').replace('.dict','')),reverse=True)
@@ -559,7 +571,7 @@ class Server(Thread):
         
         #set current gen to max of params + 1 
         self.gen                    = max(self.model_params)
-        print(f"\tServer loaded state_dicts {list(self.model_params.keys())}")
+        print(f"\t{Color.tan}Server loaded state_dicts {list(self.model_params.keys())}{Color.end}")
 
 
     #Creates the server socket and sets 
@@ -575,7 +587,7 @@ class Server(Thread):
         self.server_socket.bind((address,port))
         self.server_socket.settimeout(.1)
         self.server_socket.listen(16)   #Accept up to 16 simultaneous connections
-        print(f"\tserver listening on {address}")
+        print(f"\t{Color.green}server listening on {Color.tan}address{Color.end}")
 
 
     #Assign the next available client id
@@ -645,7 +657,7 @@ class Server(Thread):
             while len(cur_len_string) < len(str(self.train_thresh)):
                 cur_len_string = "0" + cur_len_string
 
-            print(f"\tGeneration [{self.gen}]:\t[{cur_len_string}/{self.train_thresh}] samples accumulated")
+            print(f"\t{Color.tan}Generation [{self.gen}]:\t[{cur_len_string}/{self.train_thresh}] samples accumulated{Color.green} - running!{Color.end}")
             self.next_update_t = time.time() + self.update_iter
 
 
@@ -669,11 +681,11 @@ class Server(Thread):
             #Prep for saving game outcomes
             self.game_outcomes[self.gen]    = []
 
-            print(f"\n\n\tTraining Gen {self.gen}:\n")
-            print(f"\tTRAIN PARAMS")
-            print(f"\t\tbs:\t{self.bs}")
-            print(f"\t\tlr:\t{self.lr:.4}")
-            print(f"\t\tbetas:\t{self.betas}\n\n")
+            print(f"\n\n\t{Color.blue}Training Gen {Color.tan}{self.gen}:\n{Color.end}")
+            print(f"\t{Color.blue}TRAIN PARAMS{Color.end}")
+            print(f"\t\t{Color.blue}bs:\t{Color.tan}{self.bs}{Color.end}")
+            print(f"\t\t{Color.blue}lr:\t{Color.tan}{self.lr:.4}{Color.end}")
+            print(f"\t\t{Color.blue}betas:\t{Color.tan}{self.betas}\n\n{Color.end}")
 
             #Add experiences to total_pool
             self.all_training_data          = self.all_training_data + self.current_generation_data
@@ -689,21 +701,21 @@ class Server(Thread):
 
             #View performance vs stockfish before
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\t\tPRE_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
+            print(f"\t\t{Color.blue}PRE_TRAIN:\n\t\tp_loss:{Color.tan}{p_loss:.4f}{Color.blue}\t\tv_loss:{Color.tan}{v_loss:.4f}\n\n")
             #Train it 
-            print(f"\t\tTRAINING:")
+            print(f"\t\t{Color.blue}TRAINING:")
             p_losses,v_losses               = trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
             epoch                           = 0 
             for p,v in zip(p_losses,v_losses):
-                print(f"\t\tp_loss:{p:.4f}\t\tv_loss:{v:.4f}\n")
+                print(f"\t\t{Color.blue}p_loss:{Color.tan}{p:.4f}\t\t{Color.blue}v_loss:{Color.tan}{v:.4f}\n")
             self.model_params[self.gen+1]   = next_gen_model.cpu().state_dict()
 
             #View performance vs stockfish after 
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\n\t\tPOST_TRAIN:\n\t\tp_loss:{p_loss:.4f}\t\tv_loss:{v_loss:.4f}\n\n")
+            print(f"\n\t\t{Color.blue}POST_TRAIN:\n\t\t{Color.blue}p_loss:{Color.tan}{p_loss:.4f}\t\t{Color.blue}v_loss:{Color.tan}{v_loss:.4f}\n\n{Color.end}")
 
             #Find best model 
-            print(f"\t\tMODEL SHOWDOWN\n")
+            print(f"\t\t{Color.blue}MODEL SHOWDOWN\n{Color.end}")
 
             remaining_models                = [(id,self.model_params[id]) for id in self.model_params]
             bracket                         = []
@@ -718,7 +730,7 @@ class Server(Thread):
                 self.create_test_bracket(remaining_models,bracket,byes)
 
             self.top_model                  = winners[0]
-            print(f"\t\tTop Model: {self.top_model}")
+            print(f"\t{Color.tan}Top Model: {self.top_model}{Color.end}")
             for match in self.game_outcomes[self.gen]:
                 print(f"\t\t\t{match}")
             print("")
@@ -891,8 +903,8 @@ class Server(Thread):
             else:
                 winners.append(p2)
             
-
-        print(f"\tmatches are {game_results}")
+        res_string  = str(game_results).replace(" ","").replace("'draws'",'tie')
+        print(f"\t{Color.tan}matches are {game_results}{Color.end}")
         return matches, winners
 
 
