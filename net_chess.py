@@ -38,7 +38,7 @@ class Color:
 class Client(Thread):
 
 
-    def __init__(self,address='localhost',port=15555,device=None):
+    def __init__(self,address='localhost',port=15555,device=None,pack_len=8192):
         super(Client,self).__init__()
 
         #Setup socket 
@@ -47,6 +47,7 @@ class Client(Thread):
         self.port                   = port 
         self.running                = True
         self.n_moves                = 0 
+        self.pack_len               = pack_len
 
         #game related variables
         self.current_model_params   = None
@@ -112,15 +113,14 @@ class Client(Thread):
         message                     = bytes()
         while len(message) < message_len:
             #Recieve the next pack_len bytes 
-            message                 += self.client_socket.recv(4096)
-
+            message                 += self.client_socket.recv(self.pack_len)
         buffer                      = BytesIO(message)                 
         params_as_bytes             = buffer.getvalue()
-        print(f"received {len(params_as_bytes)} bytes")
+        print(f"\t{Color.green}received {len(params_as_bytes)} bytes{Color.end}")
         model_parameters            = torch.load(BytesIO(params_as_bytes))
 
         #attempt to instantiate model with them
-        self.current_model          = ChessModel2(19,24).cuda()
+        self.current_model          = ChessModel2(19,24).cpu()
         self.current_model.load_state_dict(model_parameters)
         self.client_socket.send("Recieved".encode())
 
@@ -266,7 +266,7 @@ class Client(Thread):
 #   to the Server 
 class Client_Manager(Thread):
 
-    def __init__(self,client_socket:socket.socket,connection:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,test_params):
+    def __init__(self,client_socket:socket.socket,connection:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,test_params,pack_len=8192):
         super(Client_Manager,self).__init__()
         self.client_socket          = client_socket
         self.client_address         = connection[0]
@@ -274,7 +274,7 @@ class Client_Manager(Thread):
         self.id                     = client_id
         self.queue                  = client_queue
         self.running                = True
-        self.pack_len               = 4096 
+        self.pack_len               = pack_len
 
         #Game vars 
         self.game_params            = game_params
@@ -522,7 +522,7 @@ class Client_Manager(Thread):
 class Server(Thread):
 
 
-    def __init__(self,address='localhost',port=15555):
+    def __init__(self,address='localhost',port=15555,pack_len=8192):
         
         #Init super
         super(Server,self).__init__()
@@ -530,6 +530,7 @@ class Server(Thread):
         #Establish items 
         self.clients:list[Client_Manager]   = [] 
         self.build_socket(address,port)
+        self.pack_len                       = pack_len
 
         self.running                        = True 
         self.test_mode                      = False
@@ -800,7 +801,8 @@ class Server(Thread):
                                                          Queue(),
                                                          self.model_params[self.top_model],
                                                          self.game_params,
-                                                         self.test_params)
+                                                         self.test_params,
+                                                         pack_len=self.pack_len)
             
             #If were in test mode, make sure to let client_manager know 
             if self.test_mode:

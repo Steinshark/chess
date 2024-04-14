@@ -29,7 +29,7 @@ import random
 class MCTree:
 
 
-    def __init__(self,from_fen="",max_game_ply=160,device=torch.device('cuda'),lookup_dict={}):
+    def __init__(self,from_fen="",max_game_ply=160,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),lookup_dict={}):
         
 
         #Check if a fen is provided, otherwise use the chess starting position
@@ -57,10 +57,15 @@ class MCTree:
         self.device                 = device
 
         #Create template in GPU to copy boardstate into
+        #   if using cpu, these are not send to GPU and not pinned
         self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
 
+        #Only pin memory if using a CUDA device 
+        if not self.device  == torch.device('cpu'):
+            self.static_tensorCPU_P.pin_memory()            
+            self.static_tensorCPU_V.pin_memory()
 
     #Loads in the model to be used for evaluation 
     #   Can either be:  - a state_dict of a torch.nn.Module 

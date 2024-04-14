@@ -57,7 +57,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [fname for fname in os.listdir() if "gen_" in fname and ".dict" in fname]
 
-SERVER_IP               = '169.254.34.168'
+SERVER_IP               = "localhost"#'169.254.34.168'
 
 #A GUI program to make life easier
 class ChessApp:
@@ -73,6 +73,7 @@ class ChessApp:
         self.server_socket      = None 
         self.client_sockets     = {}
         self.client_threads     = {}
+        self.pack_len           = 16384
 
         #Window related variables
         self.window             = ThemedTk(theme='adapta')
@@ -306,14 +307,14 @@ class ChessApp:
     
     #Run this as a server (handles training algorithm)
     def run_as_server(self):
-        self.server                 = net_chess.Server(address=SERVER_IP)
+        self.server                 = net_chess.Server(address=SERVER_IP,pack_len=self.pack_len)
         self.server.load_models()       
         self.server.start()          
     
 
     #Run this as a worker (Generates training data)
-    def run_as_worker(self,device=torch.device('cuda')):
-        self.client                     = net_chess.Client(device=device,address=SERVER_IP)
+    def run_as_worker(self,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
+        self.client                     = net_chess.Client(device=device,address=SERVER_IP,pack_len=self.pack_len)
         self.client.start()
 
 
