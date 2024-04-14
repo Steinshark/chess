@@ -543,7 +543,7 @@ class Server(Thread):
     def load_models(self):
         
         #Load all gen_x.dict files
-        filenames                   = [file for file in os.listdir() if "gen" in file and ".dict" in file]
+        filenames                   = [file for file in os.listdir("generations/") if "gen" in file and ".dict" in file]
         if not filenames:
             print(f"\tServer loaded no state_dicts")
             return
@@ -552,7 +552,7 @@ class Server(Thread):
         top_params                  = filenames[:self.max_models]
 
         #build param list 
-        self.model_params           = {int(fname.replace('gen_','').replace('.dict','')):torch.load(fname) for fname in top_params}
+        self.model_params           = {int(fname.replace('gen_','').replace('.dict','')):torch.load(os.path.join("generations/",fname)) for fname in top_params}
         self.top_model              = max(self.model_params)
         
         #set current gen to max of params + 1 
