@@ -17,11 +17,6 @@ from torch.utils.data import DataLoader
 import chess_utils
 from collections import OrderedDict
 
-n_training_iterations       = 10
-top_model                   = 0
-model_list                  = {0:ChessModel2(19,24).cuda().state_dict()}
-
-
 
 #Used to play 1 game of model1 vs model2
 def showdown_match(packet):
@@ -235,19 +230,4 @@ def train_model(iter:int,chess_model:ChessModel2,experiences,bs=1024,lr=.001,wd=
 
 
 if __name__ == "__main__":
-    for iteration in range(n_training_iterations):
-
-        #Generate training games
-        generation_experiences  = generate_training_games(model_list[top_model])
-
-        #Initialize a clone of current top model and train on current experience set 
-        cur_gen_model           = ChessModel2(19,24).to(mctree.DEVICE).float().train()
-        cur_gen_model.load_state_dict(top_model)
-        train_model(iteration,cur_gen_model,generation_experiences)
-        model_list[iteration]   = cur_gen_model.state_dict()
-        
-        #Find current best model 
-        best_model              = find_best_model() 
-
-
-        input(f"gen: {iteration} done\n\ttop model: {top_model}")
+    pass

@@ -56,15 +56,12 @@ sys.path.append("C:/gitrepos")
 
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [fname for fname in os.listdir() if "gen_" in fname and ".dict" in fname]
-WORKING_MODEL           = ChessModel2(19,24).cuda().state_dict()
-WORKING_MODEL_ID        = 0
+
 SERVER_IP               = '169.254.34.168'
 
 #A GUI program to make life easier
 class ChessApp:
-    global WORKING_MODEL
-    global WORKING_MODEL_ID
-    
+
     def __init__(self):
         #Chess related variables
         self.board              = chess.Board()

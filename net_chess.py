@@ -105,10 +105,18 @@ class Client(Thread):
         if not self.running:
             return 
         
-        #Receive 64MB of data 
-        data_packet                 = self.client_socket.recv(1024*1024*64) 
-        buffer                      = BytesIO(data_packet)                 
+        #Receive packet_len     
+        message_len                 = int(self.client_socket.recv(32).decode())
+
+        #Cumulative add to message until full size recieved 
+        message                     = bytes()
+        while len(message) < message_len:
+            #Recieve the next pack_len bytes 
+            message                 += self.client_socket.recv(4096)
+
+        buffer                      = BytesIO(message)                 
         params_as_bytes             = buffer.getvalue()
+        print(f"received {len(params_as_bytes)} bytes")
         model_parameters            = torch.load(BytesIO(params_as_bytes))
 
         #attempt to instantiate model with them
@@ -266,6 +274,7 @@ class Client_Manager(Thread):
         self.id                     = client_id
         self.queue                  = client_queue
         self.running                = True
+        self.pack_len               = 4096 
 
         #Game vars 
         self.game_params            = game_params
@@ -393,13 +402,29 @@ class Client_Manager(Thread):
         #Create copy of parameters 
         parameters_copy         = deepcopy(parameters)
 
+        #Load params into data_buffer as bytes
         torch.save(parameters_copy,data_buffer)
 
         #Get bytes out of buffer
         params_as_bytes         = data_buffer.getvalue()
 
-        #Send bytes to client
-        self.client_socket.send(params_as_bytes)
+        #PROTOCOL:
+        #   send client n_bytes it will recieve 
+        #   send packets of 4096 bytes until end 
+        #   wait for Recieved signal
+        data_len                = len(params_as_bytes)
+        self.client_socket.send(str(data_len).encode())
+
+        window                  = 0 
+        while window < data_len:
+            
+            #Prep and send data packet
+            data_packet         = params_as_bytes[window:window+self.pack_len]
+            self.client_socket.send(data_packet)
+            window              += self.pack_len
+
+        # #Send bytes to client
+        # self.client_socket.send(params_as_bytes)
 
         #Get confirmation from client "Recieved"
         self.client_socket.recv(32)
