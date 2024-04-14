@@ -66,7 +66,6 @@ class ChessApp:
     global WORKING_MODEL_ID
     
     def __init__(self):
-        print(f"create app")
         #Chess related variables
         self.board              = chess.Board()
         self.player_white       = chess_player.ChessPlayer(self.board)
@@ -82,7 +81,6 @@ class ChessApp:
         self.window             = ThemedTk(theme='adapta')
         self.kill_var           = False
         self.comm_var           = "Normal"
-        print(f"created window")
         
         self.moves = list()
         self.game_over = False
@@ -309,21 +307,17 @@ class ChessApp:
         self.model.load_dict(fname)
 
     
-    
     #Run this as a server (handles training algorithm)
     def run_as_server(self):
-
         self.server                 = net_chess.Server(address=SERVER_IP)
         self.server.load_models()       
         self.server.start()          
-        print(f"started Server")
     
 
     #Run this as a worker (Generates training data)
     def run_as_worker(self,device=None):
         self.client                     = net_chess.Client(device_id=device,address=SERVER_IP)
         self.client.start()
-        print(f"started client thread\n\n")
 
 
     #Setup the app to explore chess games

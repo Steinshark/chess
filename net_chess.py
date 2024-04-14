@@ -239,10 +239,11 @@ class Client(Thread):
 #   to the Server 
 class Client_Manager(Thread):
 
-    def __init__(self,client_socket:socket.socket,address:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,test_params):
+    def __init__(self,client_socket:socket.socket,connection:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,test_params):
         super(Client_Manager,self).__init__()
         self.client_socket          = client_socket
-        self.client_address         = address
+        self.client_address         = connection[0]
+        self.client_port            = connection[1]
         self.id                     = client_id
         self.queue                  = client_queue
         self.running                = True
@@ -262,7 +263,7 @@ class Client_Manager(Thread):
         buffer                      = BytesIO()
         torch.save(ChessModel2(19,24).cpu().state_dict(),buffer)
         self.test_bytes_len         = len(buffer.getvalue())
-
+        print(f"launched a new client manager for {self.client_address}")
 
 
     def is_alive(self):
@@ -490,24 +491,24 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":12}
-        self.test_params                    = {"ply":100,"n_iters":20,'n_games':10}
+        self.game_params                    = {"ply":90,"n_iters":800}
+        self.test_params                    = {"ply":100,"n_iters":800,'n_games':10}
 
         #Training items 
         self.current_generation_data        = [] 
-        self.train_thresh                   = 4096
-        self.train_size                     = 2048
-        self.bs                             = 1024
-        self.lr                             = .005
+        self.train_thresh                   = 8192
+        self.train_size                     = 4096
+        self.bs                             = 2048
+        self.lr                             = .001
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
         self.gen                            = 0 
 
-        self.update_iter                    = 10
+        self.update_iter                    = 30
         self.next_update_t                  = time.time() + self.update_iter
         self.game_stats                     = []
-        self.lr_mult                        = .75      
+        self.lr_mult                        = .8 
 
         self.game_outcomes                  = {}     
         self.max_models                     = 4   
