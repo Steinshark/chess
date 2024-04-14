@@ -76,7 +76,7 @@ class Client(Thread):
 
             #Execute that game 
             self.execute_game()
-            print(f"\t{Color.tan}executed game{Color.end}")
+            print(f"\t\t{Color.green}executed game{Color.end}")
 
 
     #Gets the game type from client_manager
@@ -109,6 +109,9 @@ class Client(Thread):
         #Receive packet_len     
         message_len                 = int(self.client_socket.recv(32).decode())
 
+        #Confirm packet_len
+        self.client_socket.send(str(message_len).encode())
+        
         #Cumulative add to message until full size recieved 
         message                     = bytes()
         while len(message) < message_len:
@@ -116,7 +119,7 @@ class Client(Thread):
             message                 += self.client_socket.recv(self.pack_len)
         buffer                      = BytesIO(message)                 
         params_as_bytes             = buffer.getvalue()
-        print(f"\t{Color.green}received {len(params_as_bytes)} bytes{Color.end}")
+        print(f"\t\t{Color.tan}recieved {len(params_as_bytes)} bytes{Color.end}")
         model_parameters            = torch.load(BytesIO(params_as_bytes))
 
         #attempt to instantiate model with them
@@ -129,7 +132,7 @@ class Client(Thread):
 
 
     #Runs a game based on the type of 
-    #   received by the client_manager
+    #   recieved by the client_manager
     def execute_game(self):
         if self.game_mode == "Train":
 
@@ -145,7 +148,7 @@ class Client(Thread):
             #Run game 
             t0                      = time.time()
             training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device,self.lookup_dict)
-            print(f"\t{Color.tan}{(time.time()-t0)/len(training_data):.2f}s/move{Color.end}")
+            print(f"\t\t{Color.tan}{(time.time()-t0)/len(training_data):.2f}s/move{Color.end}")
             
             #Upload data
             self.upload_data(training_data,mode='Train')
@@ -410,10 +413,16 @@ class Client_Manager(Thread):
 
         #PROTOCOL:
         #   send client n_bytes it will recieve 
+        #   wait for Recieved signal
         #   send packets of 4096 bytes until end 
         #   wait for Recieved signal
         data_len                = len(params_as_bytes)
         self.client_socket.send(str(data_len).encode())
+        data_len_confirmation   = int(self.client_socket.recv(32).decode())
+        
+        if not data_len_confirmation == data_len:
+            print(f"client didnt recieve proper byte len, got {data_len_confirmation}")
+        
 
         window                  = 0 
         while window < data_len:
@@ -538,15 +547,15 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":90,"n_iters":800}
-        self.test_params                    = {"ply":100,"n_iters":800,'n_games':12}
+        self.game_params                    = {"ply":90,"n_iters":40}
+        self.test_params                    = {"ply":100,"n_iters":40,'n_games':12}
 
         #Training items 
         self.current_generation_data        = [] 
         self.all_training_data              = []
-        self.training_full_size             = 16384
-        self.train_thresh                   = 8192
-        self.train_size                     = 4096+2048
+        self.training_full_size             = 1024#16384
+        self.train_thresh                   = 1024#8192
+        self.train_size                     = 1024#4096+2048
         self.bs                             = 2048
         self.lr                             = .005
         self.wd                             = .01 
@@ -949,7 +958,7 @@ class Server(Thread):
             for client in self.clients:
 
                 #Pass only if locked and waiting and on same device
-                if client.lock and not client.in_game and client.client_address == self.address:
+                if client.lock and not client.in_game:
                     client.recieve_test_game(game_packet)
                     passed_to_client    = True
                     break 
