@@ -26,7 +26,7 @@ import os
 class Client(Thread):
 
 
-    def __init__(self,address='localhost',port=15555,device_id=None):
+    def __init__(self,address='localhost',port=15555,device=None):
         super(Client,self).__init__()
 
         #Setup socket 
@@ -38,7 +38,7 @@ class Client(Thread):
 
         #game related variables
         self.current_model_params   = None
-        self.device_id              = device_id
+        self.device                 = device
         self.game_mode              = "Train"
         self.lookup_dict            = {}
         self.max_lookup_len         = 100_000
@@ -59,7 +59,7 @@ class Client(Thread):
             
             #Recieve game type 
             self.receive_game_type()
-            print(f"received game type - {self.game_mode}")
+            print(f"\n\trecieved game type - {self.game_mode}")
 
             #Execute that game 
             self.execute_game()
@@ -79,7 +79,7 @@ class Client(Thread):
             self.game_mode          = "Test"
         elif game_type == 'Reset':
             self.lookup_dict        = {}
-            self.game_mode          = 'Test'
+            self.game_mode          = 'Train'
 
         #Acknowledge 
         self.client_socket.send('Ready'.encode())
@@ -124,7 +124,7 @@ class Client(Thread):
 
             #Run game 
             t0                      = time.time()
-            training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id,self.lookup_dict)
+            training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device,self.lookup_dict)
             print(f"\t{(time.time()-t0)/len(training_data):.2f}s/move")
             
             #Upload data
@@ -505,8 +505,10 @@ class Server(Thread):
 
         #Training items 
         self.current_generation_data        = [] 
+        self.all_training_data              = []
+        self.training_full_size             = 16384
         self.train_thresh                   = 8192
-        self.train_size                     = 4096
+        self.train_size                     = 4096+2048
         self.bs                             = 2048
         self.lr                             = .001
         self.wd                             = .01 
@@ -556,7 +558,7 @@ class Server(Thread):
         self.top_model              = max(self.model_params)
         
         #set current gen to max of params + 1 
-        self.gen                    = max(self.model_params) + 1
+        self.gen                    = max(self.model_params)
         print(f"\tServer loaded state_dicts {list(self.model_params.keys())}")
 
 
@@ -672,8 +674,13 @@ class Server(Thread):
             print(f"\t\tbs:\t{self.bs}")
             print(f"\t\tlr:\t{self.lr:.4}")
             print(f"\t\tbetas:\t{self.betas}\n\n")
-            #Select dataset to train on 
-            training_batch                  = random.choices(self.current_generation_data,k=self.train_size)
+
+            #Add experiences to total_pool
+            self.all_training_data          = self.all_training_data + self.current_generation_data
+            self.all_training_data          = self.all_training_data[-self.training_full_size:]
+
+            #Sample dataset to train         
+            training_batch                  = random.sample(self.all_training_data,k=self.train_size if self.gen > 0 else self.train_thresh//2)
             training_dataset                = trainer.TrainerExpDataset(training_batch)
 
             #Clone current best model 

@@ -12,33 +12,6 @@ import sys
 import math 
 
 
-#Determine device using availability and command line options
-if sys.argv and "--cpu" in sys.argv:
-
-    #Force CPU
-    DEVICE      = torch.device('cpu')
-
-elif sys.argv and "--cuda" in "".join(sys.argv):
-
-    #If cuda specfied, use that device ID
-    cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
-    DEVICE      = torch.device(cuda_device)
-
-    #attempt device check
-    try:
-        test    = torch.tensor([1,2,3],device=DEVICE)
-    except RuntimeError:
-        print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
-        exit()
-
-else:
-
-    #Default to CUDA device
-    DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-
-
-
 class Node:
 
     #Determine exploration tendency
@@ -90,6 +63,7 @@ class Node:
     #Used when finding best node. Maximizing if parent node is White els Min
     def maximize(self,x,y):
         return x > y 
+    
     
     #See above comment, I just want a comment above each fn
     def minimize(self,x,y):

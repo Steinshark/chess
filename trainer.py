@@ -1,7 +1,7 @@
 import torch
 import random 
 import model
-import json 
+import json
 import os 
 import chess
 import chess_utils
@@ -10,7 +10,7 @@ from mctree import MCTree
 from torch.utils.data import Dataset,DataLoader
 import multiprocessing
 
-DEVICE      = mctree.DEVICE
+DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class chessExpDataSet(Dataset):
 

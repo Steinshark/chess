@@ -152,8 +152,8 @@ class ChessApp:
         self.train_menu         = tk.Menu(self.main_menu,tearoff=False) 
         self.train_menu.add_command(label='Start Server',command=self.run_as_server) 
         self.train_menu.add_command(label='Start Client',command=self.run_as_worker) 
-        self.train_menu.add_command(label='Start Client[4060]',command=lambda: self.run_as_worker(device=0)) 
-        self.train_menu.add_command(label='Start Client[3060]',command=lambda: self.run_as_worker(device=1)) 
+        self.train_menu.add_command(label='Start Client[4060]',command=lambda: self.run_as_worker(device=torch.device('cuda:0'))) 
+        self.train_menu.add_command(label='Start Client[3060]',command=lambda: self.run_as_worker(device=torch.device('cuda:1'))) 
         self.train_menu.add_command(label='Explore',command=self.explore_training) 
         self.train_menu.add_command(label='Model Config',command=self.setup_model) 
         self.train_menu.add_command(label='-')
@@ -315,8 +315,8 @@ class ChessApp:
     
 
     #Run this as a worker (Generates training data)
-    def run_as_worker(self,device=None):
-        self.client                     = net_chess.Client(device_id=device,address=SERVER_IP)
+    def run_as_worker(self,device=torch.device('cuda')):
+        self.client                     = net_chess.Client(device=device,address=SERVER_IP)
         self.client.start()
 
 

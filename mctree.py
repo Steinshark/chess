@@ -16,43 +16,6 @@ import chess_utils
 from collections import OrderedDict
 import random 
 
-#Determine device using availability and command line options
-if sys.argv and "--cpu" in sys.argv:
-
-    #Force CPU
-    DEVICE      = torch.device('cpu')
-
-elif sys.argv and "--cuda" in "".join(sys.argv):
-
-    #If cuda specfied, use that device ID
-    cuda_device = [command.replace('--','') for command in sys.argv if '--cuda' in command ][0]
-    DEVICE      = torch.device(cuda_device)
-
-    #attempt device check
-    try:
-        test    = torch.tensor([1,2,3],device=DEVICE)
-    except RuntimeError:
-        print(f"CUDA id:{cuda_device[6:]} does not exists on machine with {torch.cuda.device_count()} CUDA devices")
-        exit()
-
-else:
-    if torch.cuda.device_count() == 1:
-        device_id   = 0 
-    else:
-        if torch.cuda.utilization(0) < torch.cuda.utilization(1):
-            device_id = 0
-        else:
-            device_id = 1
-
-    DEVICE      = torch.device('cuda:'+str(device_id) if torch.cuda.is_available() else 'cpu')
-
-if sys.argv and "--model:" in "".join(sys.argv):
-    models  = {"cpu":model.GarboCPUModel,
-               "gpu":model.ChessModel2}
-    MODEL   = [command.replace('--model:','') for command in sys.argv if '--model:' in command ][0]
-else:
-    MODEL   = model.ChessModel2
-
 
 #Creates an instance of a Monte-Carlo style Tree
 #   to develop an evaluation of a given position, the tree
@@ -66,9 +29,8 @@ else:
 class MCTree:
 
 
-    def __init__(self,from_fen="",max_game_ply=160,device_id=None,lookup_dict={}):
+    def __init__(self,from_fen="",max_game_ply=160,device=torch.device('cuda'),lookup_dict={}):
         
-        global DEVICE
 
         #Check if a fen is provided, otherwise use the chess starting position
         if from_fen:
@@ -92,11 +54,10 @@ class MCTree:
         self.common_nodes           = {}
 
         #Check override device 
-        if not device_id is None:
-            DEVICE = torch.device(f'cuda:{device_id}')
+        self.device                 = device
 
         #Create template in GPU to copy boardstate into
-        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=DEVICE)
+        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
         self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
@@ -106,7 +67,7 @@ class MCTree:
     #                   - a string specifying a file containing a state_dict
     #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(DEVICE)
+        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(self.device)
 
 
         if isinstance(state_dict,str):
@@ -123,9 +84,9 @@ class MCTree:
             
 
         #As of not, not retracing due to memory issues??
-        self.chess_model            = self.chess_model.eval().half().to(DEVICE)
+        self.chess_model            = self.chess_model.eval().half().to(self.device)
         torch.backends.cudnn.enabled    = True
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=DEVICE,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
         
 
