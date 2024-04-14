@@ -25,6 +25,7 @@ import os
 #   by playing games againts itself
 class Client(Thread):
 
+
     def __init__(self,address='localhost',port=15555,device_id=None):
         super(Client,self).__init__()
 
@@ -41,6 +42,9 @@ class Client(Thread):
         print(f"creating client - connecting to {(address,port)}")
 
 
+    #Runs the client.
+    #   loops getting game type and running
+    #   that type of game 
     def run(self):
         
         #Initialize the connection with the server and receive id
@@ -59,7 +63,9 @@ class Client(Thread):
             self.execute_game()
             print(f"\texecuted game")
 
-         
+
+    #Gets the game type from client_manager
+    #    either 'Test' or 'Train'
     def receive_game_type(self):
         game_type                   = self.client_socket.recv(32).decode()
 
@@ -72,6 +78,8 @@ class Client(Thread):
         self.client_socket.send('Ready'.encode())
 
 
+    #Gets 1 model's parameters from 
+    #   the client_manager
     def recieve_model_params(self):
 
         #Check not running 
@@ -93,6 +101,8 @@ class Client(Thread):
         return model_parameters
 
 
+    #Runs a game based on the type of 
+    #   received by the client_manager
     def execute_game(self):
         if self.game_mode == "Train":
 
@@ -109,8 +119,12 @@ class Client(Thread):
             t0                      = time.time()
             training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id)
             print(f"\t{(time.time()-t0)/len(training_data):.2f}s/move")
+            
             #Upload data
             self.upload_data(training_data,mode='Train')
+
+            #Take memory off the cuda device 
+            torch.cuda.empty_cache()
         
         elif self.game_mode == "Test":
             model1_params           = self.recieve_model_params()
@@ -129,7 +143,7 @@ class Client(Thread):
             self.upload_data(game_outcome,mode='Test')
 
 
-    #DEPRECATED      
+    #DEPRECATED in favor of execute_game  
     def run_game(self):
         print(f"beginning game")
         #Recieve 1024 bytes of data 
@@ -165,6 +179,8 @@ class Client(Thread):
         print(f"finished game\n")
 
 
+    #Uploads data from the client to the client_manager
+    #   handles both 'Train' and 'Test' modes
     def upload_data(self,data,mode='Train'):
         
         #Check for dead 
@@ -211,6 +227,7 @@ class Client(Thread):
         self.client_socket.send("End".encode())
 
 
+    #Closes down the socket and everything else
     def shutdown(self):
         self.running = False 
         self.client_socket.close()
@@ -457,6 +474,7 @@ class Client_Manager(Thread):
 #   and generate trainin games
 class Server(Thread):
 
+
     def __init__(self,address='localhost',port=15555):
         
         #Init super
@@ -472,15 +490,15 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":15,"n_iters":75}
-        self.test_params                    = {"ply":160,"n_iters":600,'n_games':8}
+        self.game_params                    = {"ply":100,"n_iters":400}
+        self.test_params                    = {"ply":160,"n_iters":600,'n_games':10}
 
         #Training items 
         self.current_generation_data        = [] 
-        self.train_thresh                   = 256
-        self.train_size                     = 64
-        self.bs                             = 32
-        self.lr                             = .01
+        self.train_thresh                   = 4096
+        self.train_size                     = 2048
+        self.bs                             = 1024
+        self.lr                             = .005
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
@@ -491,7 +509,8 @@ class Server(Thread):
         self.game_stats                     = []
         self.lr_mult                        = .75      
 
-        self.game_outcomes                  = {}       
+        self.game_outcomes                  = {}     
+        self.max_models                     = 4   
 
 
     #Run the server
@@ -518,7 +537,7 @@ class Server(Thread):
 
         #Find the top 5, and assume most recent is best model
         filenames.sort(key=lambda x: int(x.replace('gen_','').replace('.dict','')),reverse=True)
-        top_params                  = filenames[:5]
+        top_params                  = filenames[:self.max_models]
 
         #build param list 
         self.model_params           = {int(fname.replace('gen_','').replace('.dict','')):torch.load(fname) for fname in top_params}
@@ -687,9 +706,8 @@ class Server(Thread):
             self.gen                        += 1
 
             #If params > 5, drop lowest id that didnt win 
-            if len(self.model_params) == 5:
+            while len(self.model_params) > self.max_models:
                 id                          = 0
-
                 while not id in self.model_params or self.top_model == id:
                     id += 1
                 print(f"\t dropped {id}")
@@ -859,7 +877,6 @@ class Server(Thread):
 
     #Give a game_packet to a client manager for it's client 
     #   to play out and return back 
-    #
     def pass_test_game_to_client_manager(self,game_packet):
         passed_to_client                = False
 
@@ -871,8 +888,8 @@ class Server(Thread):
             #Give to client if one is available 
             for client in self.clients:
 
-                #Pass only if locked and waiting
-                if client.lock and not client.in_game:
+                #Pass only if locked and waiting and on same device
+                if client.lock and not client.in_game and client.client_address == self.address:
                     client.recieve_test_game(game_packet)
                     passed_to_client    = True
                     break 
@@ -880,178 +897,37 @@ class Server(Thread):
         return client
 
 
-
     #Return clients to generate training games 
     #   after determining top model 
     def return_client_to_train_state(self):
+        
         for client in self.clients:
-
             client.game_mode        = "Train"
-            client.unlock()
             client.in_game          = False
+            client.unlock()
 
 
+
+    #Safely close up shop
     def shutdown(self):
         self.running    =  False 
 
         for client_manager in self.clients:
             client_manager.shutdown()
         
-
         self.server_socket.close()
 
         self.join()
 
 
-#Plays one game using the specified model and returns all experiences from that game
-#   max_game_ply is the max moves per game 
-#   n_iters is the number of iterations run by the MCTree to evaluate the position
-#   kill is the way for the spawning process to kill the game immediately and return
-def play_game(model_dict:str|OrderedDict|torch.nn.Module,
-              model_id:str,
-              kill,
-              max_game_ply=160,
-              n_iters=800):
-
-    #Create board and tree
-    print(f"creating engine with model_id:{model_id}")
-    engine              = MCTree(max_game_ply=max_game_ply)
-    game_experiences    = []
-    result              = None
-    engine.load_dict(model_dict)
-
-    #Play out game
-    while result is None and not kill:
-
-        #Evaluate move 
-        move_probs      = engine.evaluate_root(n_iters=n_iters)
-
-        #Add experiences
-        game_experiences.append([engine.board.fen(),{m.uci():n for m,n in move_probs.items()},0])
-
-        #get best move by visit count
-        top_move        = None
-        top_visits      = -1 
-        for move,n_visits in move_probs.items():
-            if n_visits > top_visits:
-                top_move    = move 
-                top_visits  = n_visits
-        
-        #Push move to board and setup engine for next mve
-        result          = engine.make_move(top_move)
-
-    if kill:
-        input(f"recieved direction to terminal")
-    #update game outcome in set of experiences
-    #   current behavior if killed in the middle of the game 
-    #   is to assume a tie but still return
-    for i in range(len(game_experiences)):
-        game_experiences[i][2]  = result
-
-    return game_experiences
 
 
-
-#Streams the set of game data from a client to the server.
-def stream_exp_to_server(game_experiences:list,client_socket:socket.socket):
-    print(f"streaming data to server")
-    #Let server know incoming
-    client_socket.send("Start".encode())
-
-    for packet_i,exp in enumerate(game_experiences):
-        #Get a "Send" instruction
-        confirm         = client_socket.recv(32).decode()
-        if not confirm == "Send":
-            print(f"didnt get Send, got {confirm}")
-            break
-        #separate fen,move_data,and outcome and 
-        #   json convert to strings to send over network
-        fen:str         = exp[0]
-        move_stats:str  = json.dumps(exp[1])
-        outcome:str     = str(exp[2])
-
-        #Combine strings 
-        data_packet     = (fen,move_stats,outcome)
-        data_packet     = json.dumps(data_packet)
-
-        #encode to bytes and send to server 
-        client_socket.send(data_packet.encode())
-        #print(f"\tsent packet [{packet_i}/{len(game_experiences)}]")#DEBUG
-
-    #Let server know thats it
-    confirm         = client_socket.recv(32).decode()
-    client_socket.send("End".encode())
-    print(f"end streaming to server")
-    return True
+#TODO 
+#   - put all dictionaries in their own folder
+#   - ensure test games are only played on the same machine (check ip)
 
 
-#Asks server what should be done next
-def get_workload(client_socket:socket.socket):
-
-    #Client_Manager socket will recieve a string max length 1024
-    next_job:str        = client_socket.recv(32).decode()
-
-    #Decode job 
-    #   will be either:
-    #       - switch to new model (will require downloading model dictionary)
-    #       - play another game 
-    if next_job == "New Model":
-        print(f"got job New Model")
-    elif next_job == "New Game":
-        print(f"got job New Game")
-    elif next_job == "Kill":
-        print(f"got job Kill")
-    else:
-        print(f"got strange response: '{next_job}'")
-    input(f"execute? ")
-    return next_job
-
-
-#Handles a client (to allow for threading)
-def handle_client(client_socket:socket.socket,address,idw,communication_var,job_queue:Queue):
-    
-    try:
-        #First, send job worker id to client 
-        client_socket.send(str(idw).encode())
-        while True:
-
-            #Next, send workload
-            client_socket.send("New Game".encode())
-            #print(f"sending workload")
-
-            #Receive the 'Start' signal 
-            client_response         = client_socket.recv(32)
-            experiences             = []
-
-            #Recieve data until "End" signal
-            #print(f"streaming data")
-            while True:
-                #Send go ahead 
-                client_socket.send("Send".encode())
-                client_response     = client_socket.recv(32768).decode()
-                if client_response  == "End":
-                    break 
-                else:
-                    try:
-                        #Add experience to the experience queue to transfer
-                        #   back to server thread
-                        client_response = json.loads(client_response)
-                        experiences.append(client_response)
-                    except json.JSONDecodeError:
-                        print(f"recieved data\n{client_response}")
-                        input(f"ERROR continue?")
-                        
-
-            # print(f"ending data stream")
-            # print(f"queue is {job_queue.qsize()}\n\n")
-
-            #client_socket.send("Kill".encode())
-    except OSError:
-        print(f"Lost communication with client")
-        return False
-            
-
-
+#DEBUG purposes
 if __name__ == "__main__":
 
     server  = Server()
