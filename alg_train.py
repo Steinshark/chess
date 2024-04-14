@@ -122,10 +122,10 @@ def find_best_model(model_params:dict,max_game_ply,n_iters):
 #Plays one game using the specified model and returns all experiences from that game
 #   max_game_ply is the max moves per game 
 #   n_iters is the number of iterations run by the MCTree to evaluate the position
-def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None):
+def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iters=800,wildcard=None,device_id=None,lookup_dict={}):
 
     #Create board and tree
-    engine              = MCTree(max_game_ply=max_game_ply,device_id=device_id)
+    engine              = MCTree(max_game_ply=max_game_ply,device_id=device_id,lookup_dict=lookup_dict)
     game_experiences    = []
     result              = None
     engine.load_dict(model_dict)

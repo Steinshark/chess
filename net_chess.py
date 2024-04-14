@@ -35,11 +35,13 @@ class Client(Thread):
         self.port                   = port 
         self.running                = True
         self.n_moves                = 0 
+
         #game related variables
         self.current_model_params   = None
         self.device_id              = device_id
         self.game_mode              = "Train"
-        print(f"creating client - connecting to {(address,port)}")
+        self.lookup_dict            = {}
+        self.max_lookup_len         = 100_000
 
 
     #Runs the client.
@@ -50,7 +52,7 @@ class Client(Thread):
         #Initialize the connection with the server and receive id
         self.client_socket.connect((self.address,self.port))
         self.id                     = int(self.client_socket.recv(32).decode())
-        print(f"\tconnected to server with id:{self.id}")
+        print(f"\tclient connected to {self.address} with id:{self.id}")
     
         #Do for forever until we die
         while self.running:
@@ -65,7 +67,9 @@ class Client(Thread):
 
 
     #Gets the game type from client_manager
-    #    either 'Test' or 'Train'
+    #   either 'Test' or 'Train'
+    #   Reset added to reset lookup dict after 
+    #   new model release 
     def receive_game_type(self):
         game_type                   = self.client_socket.recv(32).decode()
 
@@ -73,6 +77,9 @@ class Client(Thread):
             self.game_mode          = "Train"
         elif game_type == "Test":
             self.game_mode          = "Test"
+        elif game_type == 'Reset':
+            self.lookup_dict        = {}
+            self.game_mode          = 'Test'
 
         #Acknowledge 
         self.client_socket.send('Ready'.encode())
@@ -117,7 +124,7 @@ class Client(Thread):
 
             #Run game 
             t0                      = time.time()
-            training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id)
+            training_data           = alg_train.play_game(model_params,max_game_ply,n_iters,self,self.device_id,self.lookup_dict)
             print(f"\t{(time.time()-t0)/len(training_data):.2f}s/move")
             
             #Upload data
@@ -260,10 +267,7 @@ class Client_Manager(Thread):
         self.lock                   = False
         self.game_mode              = "Train"
 
-        buffer                      = BytesIO()
-        torch.save(ChessModel2(19,24).cpu().state_dict(),buffer)
-        self.test_bytes_len         = len(buffer.getvalue())
-        print(f"launched a new client manager for {self.client_address}")
+        print(f"\n\tlaunched a new client manager for {self.client_address}\n")
 
 
     def is_alive(self):
@@ -343,6 +347,10 @@ class Client_Manager(Thread):
         #Send text to client 
         self.client_socket.send(self.game_mode.encode())
 
+        #place mode back to "train" if in 'Reset'
+        if self.game_mode == "Reset":
+            self.game_mode          = 'Train'
+
         #Get confirmation
         confirmation            = self.client_socket.recv(32).decode()
 
@@ -357,6 +365,9 @@ class Client_Manager(Thread):
 
         elif self.game_mode == "Test":
             self.run_test_game()
+       
+        elif self.game_mode == 'Reset':
+            self.run_training_game()
 
         else:
             print(f"\tbad game_mode: '{self.game_mode}")
@@ -374,8 +385,6 @@ class Client_Manager(Thread):
 
         #Get bytes out of buffer
         params_as_bytes         = data_buffer.getvalue()
-
-        #print(f"sending {len(params_as_bytes)} bytes")
 
         #Send bytes to client
         self.client_socket.send(params_as_bytes)
@@ -491,7 +500,7 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":90,"n_iters":800}
+        self.game_params                    = {"ply":90,"n_iters":400}
         self.test_params                    = {"ply":100,"n_iters":800,'n_games':10}
 
         #Training items 
@@ -535,7 +544,9 @@ class Server(Thread):
         
         #Load all gen_x.dict files
         filenames                   = [file for file in os.listdir() if "gen" in file and ".dict" in file]
-
+        if not filenames:
+            print(f"\tServer loaded no state_dicts")
+            return
         #Find the top 5, and assume most recent is best model
         filenames.sort(key=lambda x: int(x.replace('gen_','').replace('.dict','')),reverse=True)
         top_params                  = filenames[:self.max_models]
@@ -562,7 +573,7 @@ class Server(Thread):
         self.server_socket.bind((address,port))
         self.server_socket.settimeout(.1)
         self.server_socket.listen(16)   #Accept up to 16 simultaneous connections
-        print(f"server listening on {address}")
+        print(f"\tserver listening on {address}")
 
 
     #Assign the next available client id
@@ -903,7 +914,7 @@ class Server(Thread):
     def return_client_to_train_state(self):
         
         for client in self.clients:
-            client.game_mode        = "Train"
+            client.game_mode        = "Reset"
             client.in_game          = False
             client.unlock()
 

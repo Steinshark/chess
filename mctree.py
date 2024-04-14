@@ -66,7 +66,7 @@ else:
 class MCTree:
 
 
-    def __init__(self,from_fen="",max_game_ply=160,device_id=None):
+    def __init__(self,from_fen="",max_game_ply=160,device_id=None,lookup_dict={}):
         
         global DEVICE
 
@@ -88,7 +88,7 @@ class MCTree:
         self.dirichlet_e            = .2 
 
         #Keep track of prior explored nodes
-        self.explored_nodes         = dict()
+        self.explored_nodes         = lookup_dict
         self.common_nodes           = {}
 
         #Check override device 
