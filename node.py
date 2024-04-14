@@ -118,6 +118,7 @@ class Node:
     def get_score(self):
         return (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
 
+
     #Used for debugging to prevent gigantic floats
     def get_score_str(self):
         return f"{self.get_score():.3f}"

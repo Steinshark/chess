@@ -733,7 +733,9 @@ class Server(Thread):
             self.lr                         *= self.lr_mult
             
             #Save models 
-            torch.save(self.model_params[self.top_model],f"gen_{self.gen}.dict")
+            if not os.path.exists("generations/"):
+                os.mkdir('generations')
+            torch.save(self.model_params[self.top_model],f"generations/gen_{self.gen}.dict")
             self.test_mode                  = False
             self.return_client_to_train_state()
             
