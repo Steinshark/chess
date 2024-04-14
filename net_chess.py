@@ -363,6 +363,7 @@ class Client_Manager(Thread):
                 #client_socket.send("Kill".encode())
         except OSError:
             print(f"\n\t{Color.red}Lost communication with client{Color.end}")
+            self.shutdown()
             return False
             
 
@@ -547,15 +548,15 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":90,"n_iters":40}
-        self.test_params                    = {"ply":100,"n_iters":40,'n_games':12}
+        self.game_params                    = {"ply":90,"n_iters":800}
+        self.test_params                    = {"ply":120,"n_iters":800,'n_games':12}
 
         #Training items 
         self.current_generation_data        = [] 
         self.all_training_data              = []
-        self.training_full_size             = 1024#16384
-        self.train_thresh                   = 1024#8192
-        self.train_size                     = 1024#4096+2048
+        self.training_full_size             = 16384
+        self.train_thresh                   = 8192
+        self.train_size                     = 4096+2048
         self.bs                             = 2048
         self.lr                             = .005
         self.wd                             = .01 
