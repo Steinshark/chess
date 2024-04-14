@@ -490,8 +490,8 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":400}
-        self.test_params                    = {"ply":160,"n_iters":600,'n_games':10}
+        self.game_params                    = {"ply":100,"n_iters":12}
+        self.test_params                    = {"ply":100,"n_iters":20,'n_games':10}
 
         #Training items 
         self.current_generation_data        = [] 
