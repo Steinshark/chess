@@ -55,6 +55,8 @@ class Client(Thread):
         self.game_mode              = "Train"
         self.lookup_dict            = {}
         self.max_lookup_len         = 100_000
+        self.timeout                = 30
+        self.client_socket.settimeout(self.timeout)
 
 
     #Runs the client.
@@ -62,21 +64,28 @@ class Client(Thread):
     #   that type of game 
     def run(self):
         
-        #Initialize the connection with the server and receive id
-        self.client_socket.connect((self.address,self.port))
-        self.id                     = int(self.client_socket.recv(32).decode())
-        print(f"\t{Color.green}client connected to {Color.tan}{self.address}{Color.green} with id:{self.id}{Color.end}")
-    
-        #Do for forever until we die
-        while self.running:
-            
-            #Recieve game type 
-            self.receive_game_type()
-            print(f"\n\t{Color.tan}recieved game type - {self.game_mode}{Color.end}")
+        try:
+            #Initialize the connection with the server and receive id
+            self.client_socket.connect((self.address,self.port))
+            self.id                     = int(self.client_socket.recv(32).decode())
+            print(f"\t{Color.green}client connected to {Color.tan}{self.address}{Color.green} with id:{self.id}{Color.end}")
+                #Do for forever until we die
+            while self.running:
+                
+                #Recieve game type 
+                self.receive_game_type()
+                print(f"\n\t{Color.tan}recieved game type - {self.game_mode}{Color.end}")
 
-            #Execute that game 
-            self.execute_game()
-            print(f"\t\t{Color.green}executed game{Color.end}")
+                #Execute that game 
+                self.execute_game()
+                print(f"\t\t{Color.green}executed game{Color.end}")
+        
+        except TimeoutError:
+            print(f"{Color.red}\t\tClient timeout{Color.end}")
+            self.shutdown() 
+        except ConnectionResetError:
+            print(f"{Color.red}\t\tClient timeout{Color.end}")
+            self.shutdown() 
 
 
     #Gets the game type from client_manager
@@ -215,6 +224,7 @@ class Client(Thread):
         
         #Check for dead 
         if not self.running:
+            print(f"detected not running")
             return 
         
         #If Result game, send only the outcome 
@@ -225,6 +235,7 @@ class Client(Thread):
 
         #Otherwise send full list
         elif mode == 'Train':
+            print(f"sending mode")
             self.client_socket.send(mode.encode())
             
             #Send exps
@@ -259,8 +270,10 @@ class Client(Thread):
 
     #Closes down the socket and everything else
     def shutdown(self):
+        print(f"Closing socket")
         self.running = False 
         self.client_socket.close()
+        print(f"joined and exiting")
 
 
 
@@ -290,6 +303,9 @@ class Client_Manager(Thread):
         self.in_game                = False
         self.lock                   = False
         self.game_mode              = "Train"
+
+        #Set 500 sec timeout 
+        self.client_socket.settimeout(500)
 
         print(f"\n\t{Color.green}launched a new client manager for {Color.tan}{self.client_address}\n{Color.end}")
 
@@ -361,11 +377,13 @@ class Client_Manager(Thread):
 
 
                 #client_socket.send("Kill".encode())
+        except TimeoutError:
+            print(f"\n\t{Color.red}client shutting down{Color.end}")
+            self.shutdown()
         except OSError:
             print(f"\n\t{Color.red}Lost communication with client{Color.end}")
             self.shutdown()
-            return False
-            
+ 
 
     def send_game_type(self):
 
@@ -447,11 +465,6 @@ class Client_Manager(Thread):
         self.client_socket.send(data_packet.encode())
 
 
-    def shutdown(self):
-        self.client_socket.close()
-        self.running                = False
-
-
     def recieve_client_result(self):
 
         #Check what client is saying
@@ -524,6 +537,10 @@ class Client_Manager(Thread):
     def unlock(self):
         self.lock   = False
 
+
+    def shutdown(self):
+        self.running                = False
+        self.client_socket.close()
 
 
 #Handles the server (Aka in charge of the training algorithm)
@@ -634,6 +651,19 @@ class Server(Thread):
         return candidate_id
     
 
+    #Check all clients and remove those that are dead 
+    def check_dead_clients(self):
+
+        hitlist         = [] 
+        for client_index,client in enumerate(self.clients): 
+            if not client.running:
+                hitlist.append(client_index)
+
+        for client_index in hitlist:
+            self.clients.pop(client_index)
+            print(f"\n\t{Color.red}remove client: {client_index}{Color.end}")
+
+
     #Updates clients with the most recent parameters and 
     def update_clients(self):
         
@@ -661,6 +691,7 @@ class Server(Thread):
         while found_running_game:
             found_running_game = False
 
+            self.check_dead_clients()
             for client in self.clients:
                 client.lock             = True 
                 
@@ -888,13 +919,15 @@ class Server(Thread):
         #While games remain, get a client manager to play them         
         while bracket:
             
+            self.check_dead_clients()
+
             #Pass next game to the next available client
             self.pass_test_game_to_client_manager(bracket.pop())
 
         
         #Wait for all games to finish but not longer than 'reset' seconds
         t0                      = time.time()
-        reset                   = 250
+        reset                   = 500
         while outstanding_games and (time.time()-t0) < reset:
 
             #Check for items in all clients queues 
