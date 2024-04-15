@@ -55,8 +55,6 @@ class Client(Thread):
         self.game_mode              = "Train"
         self.lookup_dict            = {}
         self.max_lookup_len         = 100_000
-        self.timeout                = 30
-        self.client_socket.settimeout(self.timeout)
 
 
     #Runs the client.
