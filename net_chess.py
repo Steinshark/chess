@@ -182,49 +182,13 @@ class Client(Thread):
             self.upload_data(game_outcome,mode='Test')
 
 
-    #DEPRECATED in favor of execute_game  
-    def run_game(self):
-        print(f"beginning game")
-        #Recieve 1024 bytes of data 
-        data_packet                 = self.client_socket.recv(1024).decode()
-        game_parameters             = json.loads(data_packet)
-
-        #Decode game parameters
-        max_game_ply                = game_parameters['ply']
-        n_iters                     = game_parameters['n_iters']
-        game_type                   = game_parameters['type']
-
-        #Run game 
-        training_data               = alg_train.play_game(self.current_model,max_game_ply,n_iters,self,self.device_id)
-        
-        #Upload 
-
-        #Play game 
-        if game_type == "Train":
-            training_data               = alg_train.play_game(self.current_model,max_game_ply,n_iters,self,self.device_id)
-            self.current_data_batch     = training_data
-
-        elif game_type == "Test":
-
-            #Will be recieving another model dict 
-            model_dict1                 = self.current_model_params
-            self.recieve_model_params()
-            model_dict2                 = self.current_model_params
-
-            game_outcome                = alg_train.showdown_match(model_dict1,model_dict2,max_game_ply,n_iters,self,self.device_id)
-            self.current_data_batch     = game_outcome
-            print(f"outcome was {self.current_data_batch}")
-
-        print(f"finished game\n")
-
-
     #Uploads data from the client to the client_manager
     #   handles both 'Train' and 'Test' modes
     def upload_data(self,data,mode='Train'):
         
         #Check for dead 
         if not self.running:
-            print(f"detected not running")
+            #print(f"detected not running")
             return 
         
         #If Result game, send only the outcome 
@@ -235,7 +199,6 @@ class Client(Thread):
 
         #Otherwise send full list
         elif mode == 'Train':
-            print(f"sending mode")
             self.client_socket.send(mode.encode())
             
             #Send exps
@@ -565,17 +528,17 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":90,"n_iters":800}
+        self.game_params                    = {"ply":100,"n_iters":800}
         self.test_params                    = {"ply":120,"n_iters":800,'n_games':12}
 
         #Training items 
         self.current_generation_data        = [] 
         self.all_training_data              = []
-        self.training_full_size             = 16384
-        self.train_thresh                   = 8192
-        self.train_size                     = 4096+2048
+        self.training_full_size             = 32768 + 16384
+        self.train_thresh                   = 16384
+        self.train_size                     = 16384
         self.bs                             = 2048
-        self.lr                             = .005
+        self.lr                             = .0025
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
@@ -758,8 +721,9 @@ class Server(Thread):
             self.all_training_data          = self.all_training_data + self.current_generation_data
             self.all_training_data          = self.all_training_data[-self.training_full_size:]
 
-            #Sample dataset to train         
-            training_batch                  = random.sample(self.all_training_data,k=self.train_size if self.gen > 0 else self.train_thresh//2)
+            #Sample dataset to train     
+            first_train_iter                = len(self.all_training_data) == len(self.current_generation_data)    
+            training_batch                  = random.sample(self.all_training_data,k=self.train_size if first_train_iter else self.train_thresh//2)
             training_dataset                = trainer.TrainerExpDataset(training_batch)
 
             #Clone current best model 
