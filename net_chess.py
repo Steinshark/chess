@@ -527,7 +527,7 @@ class Server(Thread):
         self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
         self.top_model                      = 0 
         self.game_params                    = {"ply":100,"n_iters":800}
-        self.test_params                    = {"ply":120,"n_iters":800,'n_games':12}
+        self.test_params                    = {"ply":120,"n_iters":800,'n_games':16}
 
         #Training items 
         self.current_generation_data        = [] 
@@ -615,14 +615,15 @@ class Server(Thread):
     #Check all clients and remove those that are dead 
     def check_dead_clients(self):
 
+        #Find all dead clients
         hitlist         = [] 
-        for client_index,client in enumerate(self.clients): 
+        for client in self.clients: 
             if not client.running:
-                hitlist.append(client_index)
+                hitlist.append(client)
 
-        for client_index in hitlist:
-            self.clients.pop(client_index)
-            print(f"\n\t{Color.red}remove client: {client_index}{Color.end}")
+        #Remove all dead clients
+        for dead_client in hitlist:
+            self.clients.remove(dead_client)
 
 
     #Updates clients with the most recent parameters and 
@@ -697,6 +698,7 @@ class Server(Thread):
             self.test_mode                  = True 
             
             #Dont train until all games are done
+            print(f"\n\t{Color.tan}Syncing Clients - collected [{len(self.current_generation_data)}]{Color.end}")
             self.sync_all_clients()
 
             #Snatch all experiences still in queues
@@ -721,7 +723,7 @@ class Server(Thread):
 
             #Sample dataset to train     
             first_train_iter                = len(self.all_training_data) == len(self.current_generation_data)    
-            training_batch                  = random.sample(self.all_training_data,k=self.train_size if first_train_iter else self.train_thresh//2)
+            training_batch                  = random.sample(self.all_training_data,k=self.train_size if not first_train_iter else self.train_thresh//2)
             training_dataset                = trainer.TrainerExpDataset(training_batch)
 
             #Clone current best model 
@@ -937,6 +939,7 @@ class Server(Thread):
             
         res_string  = str(game_results).replace(" ","").replace("'draws'",'tie')
         print(f"\t{Color.tan}matches are {game_results}{Color.end}")
+        self.train_thresh   = 16384
         return matches, winners
 
 

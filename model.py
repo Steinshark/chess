@@ -178,7 +178,6 @@ class ChessModel2(torch.nn.Module):
         self.final_conv     = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,32,3,1,1,bias=False),
                                                   torch.nn.BatchNorm2d(32),
                                                   conv_act(),
-
                                                   torch.nn.Flatten(start_dim=1)
         )
 
@@ -211,9 +210,9 @@ class ChessModel2(torch.nn.Module):
         c2                  = torch.cat([v2,h2,f2],dim=1)
 
         #Round3
-        v3                  = self.vconv2(c2)
-        h3                  = self.hconv2(c2)
-        f3                  = self.fullconv2(c2)
+        v3                  = self.vconv3(c2)
+        h3                  = self.hconv3(c2)
+        f3                  = self.fullconv3(c2)
         c3                  = torch.cat([v3,h3,f3],dim=1)
 
         #Final
