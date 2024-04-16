@@ -616,7 +616,7 @@ class Server(Thread):
     def check_dead_clients(self):
 
         #Find all dead clients
-        hitlist         = [] 
+        hitlist:list[Client_Manager]    = [] 
         for client in self.clients: 
             if not client.running:
                 hitlist.append(client)
@@ -624,25 +624,17 @@ class Server(Thread):
         #Remove all dead clients
         for dead_client in hitlist:
             self.clients.remove(dead_client)
+            print(f"\t{Color.red}remove client: {dead_client.id}{Color.end}")
 
 
     #Updates clients with the most recent parameters and 
     def update_clients(self):
         
-        hitlist         = [] 
-        for client_index,client in enumerate(self.clients):
+        self.check_dead_clients()
 
-            #Check client is alive 
-            if not client.running:
-                hitlist.append(client_index)
-            else:
-                #Pass-on most recent model 
-                client.recieve_model(self.model_params[self.top_model])
-                
-        for client_index in hitlist:
-            self.clients.pop(client_index)
-            print(f"\tremove client: {client_index}")
-        pass 
+        for client in self.clients:
+            #Pass-on most recent model 
+            client.recieve_model(self.model_params[self.top_model])
 
 
     #Blocks until all clients have finished their game and 
