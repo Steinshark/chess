@@ -72,7 +72,7 @@ class MCTree:
     #                   - a string specifying a file containing a state_dict
     #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,24).to(self.device)
+        self.chess_model            = model.ChessModel2(chess_utils.TENSOR_CHANNELS,12).to(self.device)
 
 
         if isinstance(state_dict,str):

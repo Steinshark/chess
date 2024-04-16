@@ -130,7 +130,7 @@ class Client(Thread):
         model_parameters            = torch.load(BytesIO(params_as_bytes))
 
         #attempt to instantiate model with them
-        self.current_model          = ChessModel2(19,24).cpu()
+        self.current_model          = ChessModel2(19,12).cpu()
         self.current_model.load_state_dict(model_parameters)
         self.client_socket.send("Recieved".encode())
 
@@ -524,7 +524,7 @@ class Server(Thread):
         self.test_mode                      = False
 
         #Model items 
-        self.model_params                   = {0:ChessModel2(19,24).cpu().state_dict()}
+        self.model_params                   = {0:ChessModel2(19,12).cpu().state_dict()}
         self.top_model                      = 0 
         self.game_params                    = {"ply":100,"n_iters":800}
         self.test_params                    = {"ply":120,"n_iters":800,'n_games':16}
@@ -719,7 +719,7 @@ class Server(Thread):
             training_dataset                = trainer.TrainerExpDataset(training_batch)
 
             #Clone current best model 
-            next_gen_model                  = ChessModel2(19,24).cpu()              #Always pass stuff on the cpu
+            next_gen_model                  = ChessModel2(19,12).cpu()              #Always pass stuff on the cpu
             next_gen_model.load_state_dict(self.model_params[self.top_model])
 
             #View performance vs stockfish before
@@ -992,12 +992,12 @@ if __name__ == "__main__":
 
     server  = Server()
 
-    server.model_params[1] = ChessModel2(19,24).state_dict()
-    server.model_params[2] = ChessModel2(19,24).state_dict()
-    server.model_params[3] = ChessModel2(19,24).state_dict()
-    server.model_params[4] = ChessModel2(19,24).state_dict()
-    server.model_params[5] = ChessModel2(19,24).state_dict()
-    server.model_params[6] = ChessModel2(19,24).state_dict()
+    server.model_params[1] = ChessModel2(19,12).state_dict()
+    server.model_params[2] = ChessModel2(19,12).state_dict()
+    server.model_params[3] = ChessModel2(19,12).state_dict()
+    server.model_params[4] = ChessModel2(19,12).state_dict()
+    server.model_params[5] = ChessModel2(19,12).state_dict()
+    server.model_params[6] = ChessModel2(19,12).state_dict()
 
     games   =    []
     server.create_test_bracket([(i,server.model_params[i]) for i in server.model_params],games)
