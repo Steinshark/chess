@@ -120,7 +120,7 @@ class ChessModel(torch.nn.Module):
 class ChessModel2(torch.nn.Module):
 
 
-    def __init__(self,in_ch:int=19,n_channels:int=32):
+    def __init__(self,in_ch:int=19,n_channels:int=16):
 
         super(ChessModel2,self).__init__()
         #n_channels is set to 24 currently 
@@ -225,7 +225,7 @@ class ChessModel2(torch.nn.Module):
 if __name__ == "__main__":
     import time
     torch.jit.enable_onednn_fusion(True)
-    m       = ChessModel2(19,12).float().eval()
+    m       = ChessModel2().float().eval()
     m = torch.jit.trace(m, [torch.randn(size=(16,19,8,8),device=torch.device('cpu'),dtype=torch.float32)])
     # Invoking torch.jit.freeze
     m = torch.jit.freeze(m)

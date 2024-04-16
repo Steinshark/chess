@@ -39,7 +39,6 @@ from pprint import pp
 import torch 
 import numpy
 import net_chess
-from model import ChessModel2
 import mctree
 
 #Network related 
