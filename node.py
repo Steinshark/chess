@@ -15,7 +15,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 3
+    c           = 2
     
     #For easy game outcome sorting
     RESULTS     = {"1/2-1/2":0,
@@ -93,6 +93,11 @@ class Node:
         return (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
 
 
+    #Return just the q_score (for training)
+    def get_q_score(self):
+        return (self.cumulative_score / (self.n_visits+1)).item()
+
+
     #Used for debugging to prevent gigantic floats
     def get_score_str(self):
         return f"{self.get_score():.3f}"
@@ -143,9 +148,9 @@ class Node:
 
         #Checks for same node 
         if position_key in common_nodes:
-            common_nodes[position_key].append(self)
+            common_nodes[position_key].add(self)
         else:
-            common_nodes[position_key]  = [self]
+            common_nodes[position_key]  = {self}
 
         #Check end state of node. either return actual outcome or perform computation 
         if board.is_game_over() or board.ply() > max_depth:
@@ -164,7 +169,7 @@ class Node:
     #Passes up the value recieved at the leaf and updates the visit count
     def bubble_up(self,outcome):
 
-        self.cumulative_score += outcome
+        self.cumulative_score   += outcome
         self.n_visits           += 1
 
         if not self.parent is None:

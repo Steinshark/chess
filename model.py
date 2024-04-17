@@ -130,48 +130,48 @@ class ChessModel2(torch.nn.Module):
 
         inter_sum     = v_conv_n+h_conv_n+f_conv_n
 
-        conv_act      = torch.nn.GELU
-        lin_act       = torch.nn.GELU
+        conv_act      = torch.nn.LeakyReLU
+        lin_act       = torch.nn.LeakyReLU
 
 
         #LAYER 1
         self.vconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
         self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
-        self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
+        self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
         #LAYER 2
         self.vconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
         self.hconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
-        self.fullconv2      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
+        self.fullconv2      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
         #LAYER3
         self.vconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
         self.hconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
-        self.fullconv3      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
+        self.fullconv3      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act())
+                                                  conv_act(.1))
         
 
         #FINAL LAYER
@@ -183,15 +183,17 @@ class ChessModel2(torch.nn.Module):
 
 
         #P
-        self.prob_head      = torch.nn.Sequential(torch.nn.Linear(32*8*8,1968),
+        self.prob_head      = torch.nn.Sequential(torch.nn.Linear(32*8*8,2048),
+                                                  lin_act(.2),
+                                                  torch.nn.Linear(2048,1968),
                                                   torch.nn.Softmax(dim=1))
         
         #V
         self.val_head       = torch.nn.Sequential(torch.nn.Linear(32*8*8,512),
-                                                  torch.nn.Dropout(p=.4),
-                                                  lin_act(),
+                                                  #torch.nn.Dropout(p=.4),
+                                                  lin_act(.2),
                                                   torch.nn.Linear(512,1),
-                                                  torch.nn.Dropout(p=.4),
+                                                  #torch.nn.Dropout(p=.4),
                                                   torch.nn.Tanh())
        
             

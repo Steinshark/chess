@@ -137,8 +137,7 @@ def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iter
         move_probs      = engine.evaluate_root(n_iters=n_iters)
 
         #Add experiences
-        game_experiences.append([engine.board.fen(),{m.uci():n for m,n in move_probs.items()},0])
-
+        game_experiences.append([engine.board.fen(),{m.uci():n for m,n in move_probs.items()},0,engine.root.get_q_score()])
         #get best move by visit count
         top_move        = None
         top_visits      = -1 
@@ -153,7 +152,7 @@ def play_game(model_dict:str|OrderedDict|torch.nn.Module,max_game_ply=160,n_iter
     #update game outcome in set of experiences
     for i in range(len(game_experiences)):
         game_experiences[i][2]  = result
-
+    
     return game_experiences
 
 
@@ -230,4 +229,5 @@ def train_model(iter:int,chess_model:ChessModel2,experiences,bs=1024,lr=.001,wd=
 
 
 if __name__ == "__main__":
-    pass
+    m   = ChessModel2().state_dict()
+    play_game(m,n_iters=400,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))

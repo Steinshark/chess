@@ -54,7 +54,7 @@ sys.path.append("C:/gitrepos")
 
 
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
-MODEL_DICTS             = [fname for fname in os.listdir() if "gen_" in fname and ".dict" in fname]
+MODEL_DICTS             = [os.path.join("generations",fname) for fname in os.listdir("generations") if "gen_" in fname and ".dict" in fname]
 
 SERVER_IP               = '169.254.34.168'
 
@@ -136,7 +136,7 @@ class ChessApp:
         #   Game
         self.game_menu      = tk.Menu(self.main_menu,tearoff=False) 
         self.game_menu.add_command(label='New') 
-        self.game_menu.add_command(label='Reset') 
+        self.game_menu.add_command(label='Reset',command=self.reset_board) 
         self.game_menu.add_command(label='Players') 
         self.game_menu.add_command(label='Edit')
         #   Players
@@ -349,7 +349,7 @@ class ChessApp:
         self.model_move_f.pack(expand=True,fill='x')
         self.model_move_l       = Label(self.model_move_f,text='n_iters',width=20)
         self.model_move_l.pack(side='left',fill='x')
-        self.model_move_e       = Entry(self.model_move_f,text='',width=25)
+        self.model_move_e       = Entry(self.model_move_f,text=str(self.n_iters),width=25)
         self.model_move_e.pack(side='left',fill='x')
         self.model_move_b       = Button(self.model_move_f,text='run',command=self.make_model_move)
         self.model_move_b.pack(side='right',fill='x')
@@ -450,14 +450,14 @@ class ChessApp:
         for move,count in move_counts:
             if count > top_count:
                 top_move    = move 
-                top_count   = top_count
-        print(f"moves are {move_counts}")
+                top_count   = count
+
         self.push_move_to_board(top_move)
 
 
     #Push a move to the apps board
     def push_move_to_board(self,move:chess.Move):
-
+        
         if move in self.current_moves:
             self.board.push(move)
         else:
@@ -465,6 +465,7 @@ class ChessApp:
         
         if self.model:
             self.model.make_move(move)
+            print(f"root now {self.model.root.move}")
         self.current_moves  = list(self.board.generate_legal_moves())
         self.create_board_img()
    
@@ -476,6 +477,7 @@ class ChessApp:
         if "model" in self.__dict__:
             self.create_model(self.cur_file)
 
+        self.create_board_img()
     #DEPRECATED
     def play(self):
 

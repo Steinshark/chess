@@ -38,10 +38,11 @@ class chessExpDataSet(Dataset):
                     fen             = item[0]
                     distribution    = item[1]
                     game_outcome    = item[2]
+                    q_value         = item[3]
 
                     self.fens.append(fen)
                     self.distros.append(distribution)
-                    self.z_vals.append(game_outcome)
+                    self.z_vals.append((game_outcome+q_value)/2)        #TRAIN ON AVERAGE
 
         self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
         
@@ -74,10 +75,11 @@ class TrainerExpDataset(Dataset):
                 fen             = item[0]
                 distribution    = item[1]
                 game_outcome    = item[2]
+                q_value         = item[3]
 
                 self.fens.append(fen)
                 self.distros.append(distribution)
-                self.z_vals.append(game_outcome)
+                self.z_vals.append((game_outcome+q_value)/2)
             except KeyError:
                 pass
 

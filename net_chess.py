@@ -130,8 +130,9 @@ class Client(Thread):
         model_parameters            = torch.load(BytesIO(params_as_bytes))
 
         #attempt to instantiate model with them
-        self.current_model          = ChessModel2().cpu()
+        self.current_model          = ChessModel2()
         self.current_model.load_state_dict(model_parameters)
+        self.current_model.float().to(self.device)
         self.client_socket.send("Recieved".encode())
 
         #Return the params 
@@ -213,9 +214,10 @@ class Client(Thread):
                 fen:str         = exp[0]
                 move_stats:str  = json.dumps(exp[1])
                 outcome:str     = str(exp[2])
+                q_value         = str(exp[3])
 
                 #Combine strings 
-                data_packet     = (fen,move_stats,outcome)
+                data_packet     = (fen,move_stats,outcome,q_value)
                 data_packet     = json.dumps(data_packet)
 
                 #encode to bytes and send to server 
@@ -469,7 +471,7 @@ class Client_Manager(Thread):
                     #Add experience to the experience queue to transfer
                     data_packet     = json.loads(client_response)
                     #Re-convert             FEN                   MOVE_DISTR                      OUTCOME
-                    client_response = (data_packet[0],json.loads(data_packet[1]),float(data_packet[2]))
+                    client_response = (data_packet[0],json.loads(data_packet[1]),float(data_packet[2]),float(data_packet[3]))
                     
                     #Place in the data queue for the Server thread to fetch 
                     self.queue.put(client_response)
@@ -526,17 +528,17 @@ class Server(Thread):
         #Model items 
         self.model_params                   = {0:ChessModel2().cpu().state_dict()}
         self.top_model                      = 0 
-        self.game_params                    = {"ply":100,"n_iters":800}
-        self.test_params                    = {"ply":120,"n_iters":800,'n_games':16}
+        self.game_params                    = {"ply":80,"n_iters":400}
+        self.test_params                    = {"ply":120,"n_iters":400,'n_games':12}
 
         #Training items 
         self.current_generation_data        = [] 
         self.all_training_data              = []
-        self.training_full_size             = 32768 + 16384
-        self.train_thresh                   = 16384
-        self.train_size                     = 16384
-        self.bs                             = 2048
-        self.lr                             = .0025
+        self.window_size                    = 65536
+        self.train_thresh                   = 32768
+
+        self.bs                             = 4096
+        self.lr                             = .002
         self.wd                             = .01 
         self.betas                          = (.5,.8)
         self.n_epochs                       = 1 
@@ -545,9 +547,8 @@ class Server(Thread):
         self.update_iter                    = 30
         self.next_update_t                  = time.time() + self.update_iter
         self.game_stats                     = []
-        self.lr_mult                        = .8 
+        self.lr_mult                        = .9
 
-        self.game_outcomes                  = {}     
         self.max_models                     = 4   
 
 
@@ -662,6 +663,83 @@ class Server(Thread):
             client.unlock()
 
 
+    #Curates the list of training examples for a 
+    #   given training run
+    def add_experiences_to_set(self):
+
+        #If not, then apply window algorithm 
+        self.all_training_data          = self.all_training_data + self.current_generation_data
+        self.all_training_data          = self.all_training_data[int(-self.window_size*min(1,(self.gen+1)/3)):]
+
+
+    #Tests a model agains a stockfish dataset 
+    def test_model(self,chess_model:ChessModel2):
+        p_loss,v_loss                           = trainer.check_vs_stockfish(chess_model)
+        print(f"\t\t{Color.blue}PRE_TRAIN:\n\t\tp_loss:{Color.tan}{p_loss:.4f}{Color.blue}\t\tv_loss:{Color.tan}{v_loss:.4f}\n\n")
+        
+    
+    #Trains the current model
+    def train_current_model(self,chess_model:ChessModel2):
+        
+        print(f"\t\t{Color.blue}TRAINING:")
+
+        #Ensure proper state 
+        chess_model.cuda().train()  
+
+        #Train loop
+        for epoch_num in range(self.n_epochs):
+
+            #Select training batch 
+            if len(self.all_training_data) == len(self.current_generation_data):
+                dataset                         = self.all_training_data
+            else:
+                dataset                         = random.sample(self.all_training_data,k=int(len(self.all_training_data)/3))
+            
+            dataset                             = trainer.TrainerExpDataset(dataset)
+            #Train new model 
+            p_losses,v_losses                   = trainer.train_model(chess_model,dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
+            print(f"\t\t{Color.blue}[{epoch_num}]: p_loss:{Color.tan}{p_losses[-1]:.4f}\t{Color.blue}v_loss:{Color.tan}{v_losses[-1]:.4f}\t{Color.blue}size:[{len(dataset)}]{Color.end}\n")
+
+        return chess_model
+    
+
+    #Finds the latest top_model
+    def find_best_model(self):
+        #Generate lists for the algorithm
+        remaining_models                = [(id,self.model_params[id]) for id in self.model_params]
+        bracket                         = []
+        byes                            = []
+
+        #Create the first bracket (recursive)
+        self.create_test_bracket(remaining_models,bracket,byes)
+
+        #Run, then generate new until done
+        while len(remaining_models) > 1:
+            outcomes,winners            = self.run_bracket(bracket)
+            remaining_models            = [(id,self.model_params[id]) for id in winners+byes]
+            bracket                     = []
+            byes                        = []
+            self.create_test_bracket(remaining_models,bracket,byes)
+
+        #Set new top model
+        self.top_model                  = winners[0]
+        print(f"\t{Color.tan}Top Model: {self.top_model}{Color.end}")
+
+
+        #Increment generation
+        self.gen                        += 1
+
+        #If params > 5, drop lowest id that didnt win 
+        while len(self.model_params) > self.max_models:
+            id                          = 0
+            while not id in self.model_params or self.top_model == id:
+                id += 1
+            print(f"{Color.tan}\t dropped model {id}{Color.end}")
+            del self.model_params[id]
+                
+        return
+
+
     #Add experiences to server's list and 
     #   Check if its time to train 
     def update_training_state(self):
@@ -674,103 +752,73 @@ class Server(Thread):
         if time.time() - self.next_update_t > 0:    
             
             #Add leading zeros to len
-            cur_len_string              = str(len(self.current_generation_data))
+            cur_len_string                  = str(len(self.current_generation_data))
             while len(cur_len_string) < len(str(self.train_thresh)):
                 cur_len_string = "0" + cur_len_string
 
             print(f"\t{Color.tan}Generation [{self.gen}]:\t[{cur_len_string}/{self.train_thresh}] samples accumulated{Color.green} - running!{Color.end}")
-            self.next_update_t = time.time() + self.update_iter
+            self.next_update_t              = time.time() + self.update_iter
 
 
         #Once over self.train_thresh, train and update model 
-        
         if len(self.current_generation_data) > self.train_thresh:
             
             #Set in test mode
             self.test_mode                  = True 
             
             #Dont train until all games are done
-            print(f"\n\t{Color.tan}Syncing Clients - collected [{len(self.current_generation_data)}]{Color.end}")
+            print(f"\n\t{Color.tan}Syncing Clients",end='')
             self.sync_all_clients()
 
             #Snatch all experiences still in queues
             for client in self.clients:
                 while not client.queue.empty():
                     self.current_generation_data.append(client.queue.get())
-                
-
-
-            #Prep for saving game outcomes
-            self.game_outcomes[self.gen]    = []
-
+        
+            #Show some data
+            print(f" - collected [{len(self.current_generation_data)}]{Color.end}")
             print(f"\n\n\t{Color.blue}Training Gen {Color.tan}{self.gen}:\n{Color.end}")
             print(f"\t{Color.blue}TRAIN PARAMS{Color.end}")
             print(f"\t\t{Color.blue}bs:\t{Color.tan}{self.bs}{Color.end}")
             print(f"\t\t{Color.blue}lr:\t{Color.tan}{self.lr:.4}{Color.end}")
-            print(f"\t\t{Color.blue}betas:\t{Color.tan}{self.betas}\n\n{Color.end}")
+            print(f"\t\t{Color.blue}betas:\t{Color.tan}{self.betas}{Color.end}")
+            print(f"\t\t{Color.blue}iters:\t{Color.tan}{(self.game_params['n_iters'])}{Color.end}")
+            print(f"\t\t{Color.blue}ply:\t{Color.tan}{(self.game_params['ply'])}\n\n{Color.end}")
 
-            #Add experiences to total_pool
-            self.all_training_data          = self.all_training_data + self.current_generation_data
-            self.all_training_data          = self.all_training_data[-self.training_full_size:]
+            #Handle data 
+            self.add_experiences_to_set()
 
-            #Sample dataset to train     
-            first_train_iter                = len(self.all_training_data) == len(self.current_generation_data)    
-            training_batch                  = random.sample(self.all_training_data,k=self.train_size if not first_train_iter else self.train_thresh//2)
-            training_dataset                = trainer.TrainerExpDataset(training_batch)
-
-            #Clone current best model 
-            next_gen_model                  = ChessModel2().cpu()              #Always pass stuff on the cpu
+            #Prep next model with current best params
+            next_gen_model                  = ChessModel2()
             next_gen_model.load_state_dict(self.model_params[self.top_model])
+            next_gen_model.cuda().eval().float()
 
             #View performance vs stockfish before
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
             print(f"\t\t{Color.blue}PRE_TRAIN:\n\t\tp_loss:{Color.tan}{p_loss:.4f}{Color.blue}\t\tv_loss:{Color.tan}{v_loss:.4f}\n\n")
-            #Train it 
-            print(f"\t\t{Color.blue}TRAINING:")
-            p_losses,v_losses               = trainer.train_model(next_gen_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
-            epoch                           = 0 
-            for p,v in zip(p_losses,v_losses):
-                print(f"\t\t{Color.blue}p_loss:{Color.tan}{p:.4f}\t\t{Color.blue}v_loss:{Color.tan}{v:.4f}\n")
-            self.model_params[self.gen+1]   = next_gen_model.cpu().state_dict()
+            
+            #Train new model
+            self.train_current_model(next_gen_model)
 
-            #View performance vs stockfish after 
+            #View performance vs stockfish after
             p_loss,v_loss                   = trainer.check_vs_stockfish(next_gen_model)
-            print(f"\n\t\t{Color.blue}POST_TRAIN:\n\t\t{Color.blue}p_loss:{Color.tan}{p_loss:.4f}\t\t{Color.blue}v_loss:{Color.tan}{v_loss:.4f}\n\n{Color.end}")
+            print(f"\t\t{Color.blue}PRE_TRAIN:\n\t\tp_loss:{Color.tan}{p_loss:.4f}{Color.blue}\t\tv_loss:{Color.tan}{v_loss:.4f}\n\n")
+            
+
+
+            #place in params  
+            next_gen_parameters             = next_gen_model.half().cpu().state_dict()
+            self.model_params[self.gen+1]   = next_gen_parameters
+
 
             #Find best model 
             print(f"\t\t{Color.blue}MODEL SHOWDOWN\n{Color.end}")
-
-            remaining_models                = [(id,self.model_params[id]) for id in self.model_params]
-            bracket                         = []
-            byes                            = []
-            self.create_test_bracket(remaining_models,bracket,byes)
-
-            while len(remaining_models) > 1:
-                outcomes,winners            = self.run_bracket(bracket)
-                remaining_models            = [(id,self.model_params[id]) for id in winners+byes]
-                bracket                     = []
-                byes                        = []
-                self.create_test_bracket(remaining_models,bracket,byes)
-
-            self.top_model                  = winners[0]
-            print(f"\t{Color.tan}Top Model: {self.top_model}{Color.end}")
-            for match in self.game_outcomes[self.gen]:
-                print(f"\t\t\t{match}")
-            print("")
-            self.gen                        += 1
-
-            #If params > 5, drop lowest id that didnt win 
-            while len(self.model_params) > self.max_models:
-                id                          = 0
-                while not id in self.model_params or self.top_model == id:
-                    id += 1
-                print(f"\t dropped {id}")
-                del self.model_params[id]
-                
+            self.find_best_model()
 
         
             #Reset training data pool
             self.current_generation_data    = []
+
             #Reduce lr 
             self.lr                         *= self.lr_mult
             
@@ -778,9 +826,18 @@ class Server(Thread):
             if not os.path.exists("generations/"):
                 os.mkdir('generations')
             torch.save(self.model_params[self.top_model],f"generations/gen_{self.gen}.dict")
-            self.test_mode                  = False
+
+            #Go back to a training state
             self.return_client_to_train_state()
             
+            #Update game params throughout training 
+            if self.gen < 5:
+                self.game_params['n_iters']     = self.game_params['n_iters'] + 50 
+                self.test_params['n_iters']     = self.test_params['n_iters'] + 50 
+
+                self.game_params['ply']         = self.game_params['ply'] + 5 
+                self.test_params['ply']         = self.test_params['ply'] + 5 
+
 
     #Performs the work of checking if a new client is looking
     #   to connect
@@ -789,7 +846,7 @@ class Server(Thread):
         try:
 
             #Look for a connecting client 
-            client_socket,addr              = self.server_socket.accept() 
+            client_socket,addr                  = self.server_socket.accept() 
 
             #Create a new client_manager for them 
             new_client_manager                  = Client_Manager(client_socket,
@@ -960,6 +1017,9 @@ class Server(Thread):
     #Return clients to generate training games 
     #   after determining top model 
     def return_client_to_train_state(self):
+
+        #Return back to test mode
+        self.test_mode                  = False
         
         for client in self.clients:
             client.game_mode        = "Reset"

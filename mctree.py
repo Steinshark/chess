@@ -67,6 +67,7 @@ class MCTree:
             self.static_tensorCPU_P.pin_memory()            
             self.static_tensorCPU_V.pin_memory()
 
+
     #Loads in the model to be used for evaluation 
     #   Can either be:  - a state_dict of a torch.nn.Module 
     #                   - a string specifying a file containing a state_dict
@@ -179,6 +180,14 @@ class MCTree:
     #   and descends to corresponding node.
     #   Keeps prior calculations down this line  
     def make_move(self,move:chess.Move):
+
+        #Check if move actually in children
+        if self.root.n_visits == 0:
+            #print(f"Found 0 visit case looking for {move}")
+            #print(f"{self.root} had {[move.move for move in self.root.children]}")
+            self.perform_iter(False)
+            #print(f"{self.root} had {[move.move for move in self.root.children]}")
+
         
         #Make move 
         self.board.push(move)
@@ -187,7 +196,6 @@ class MCTree:
         if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
             return Node.RESULTS[self.board.result()]
         
-        #update tree 
         self.chosen_branch  = self.root.traverse_to_child(move)
         del self.root 
         self.root           =  self.chosen_branch
