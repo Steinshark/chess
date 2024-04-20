@@ -111,7 +111,11 @@ class Node:
             with torch.no_grad():   #no grad! (obviously)
 
                 #Representation as a (bs,19,8,8) tensor
-                board_repr              = chess_utils.batched_fen_to_tensor([board_key]).half()
+
+                # CPU SPECIFIC 
+                #board_repr              = chess_utils.batched_fen_to_tensor([board_key]).half()
+                board_repr              = chess_utils.batched_fen_to_tensor([board_key]).float()
+                #/CPU SPECIFIC
 
                 #Perform copy to static memory in GPU (large speedup if using GPU)
                 static_gpu.copy_(board_repr)

@@ -57,7 +57,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [fname for fname in os.listdir() if "gen_" in fname and ".dict" in fname]
 
-SERVER_IP               = '169.254.34.168'
+SERVER_IP               = '192.168.1.173'
 
 #A GUI program to make life easier
 class ChessApp:
