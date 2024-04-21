@@ -596,6 +596,7 @@ class Server(Thread):
             for client in self.client_managers:
                 while not client.queue.empty():
                     self.data_pool.append(client.queue.get())
+                    self.exp_counter += 1
                 
             #Update window and reset train counter
             self.apply_window()
