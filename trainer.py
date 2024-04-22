@@ -1,8 +1,8 @@
 import torch
-import random 
+import random
 import model
 import json
-import os 
+import os
 import chess
 import chess_utils
 import mctree
@@ -15,10 +15,10 @@ DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class chessExpDataSet(Dataset):
 
     def __init__(self,filepath:str,limit=1_000_000,percent=1.0):
-        
-        self.fens           = [] 
+
+        self.fens           = []
         self.distros        = []
-        self.z_vals         = [] 
+        self.z_vals         = []
         self.data           = []
 
 
@@ -30,7 +30,7 @@ class chessExpDataSet(Dataset):
             #Fix to full path
             filename    = os.path.join(filepath,filename)
 
-            #Load game 
+            #Load game
             with open(filename,"r") as file:
                 game_data   = json.loads(file.read())
 
@@ -44,19 +44,19 @@ class chessExpDataSet(Dataset):
                     self.z_vals.append(game_outcome)
 
         self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
-        
+
         self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
 
-        #Shuffle data 
+        #Shuffle data
         random.shuffle(self.data)
 
-        #select percent 
+        #select percent
         self.data       = random.choices(self.data,k=int(len(self.data)*percent))
 
     def __getitem__(self,i:int):
         item    = self.data[i]
         return item[0],item[1],item[2]
-    
+
     def __len__(self):
         return len(self.data)
 
@@ -64,9 +64,9 @@ class chessExpDataSet(Dataset):
 class TrainerExpDataset(Dataset):
 
     def __init__(self,experiences):
-        self.fens           = [] 
-        self.distros        = [] 
-        self.z_vals         = [] 
+        self.fens           = []
+        self.distros        = []
+        self.z_vals         = []
 
         for item in experiences:
 
@@ -82,24 +82,24 @@ class TrainerExpDataset(Dataset):
                 pass
 
         self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
-        
+
         self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
 
     def __getitem__(self,i:int):
         item    = self.data[i]
         return item[0],item[1],item[2]
-    
+
     def __len__(self):
         return len(self.data)
-    
+
 
 class stockfishExpDataSet(Dataset):
 
     def __init__(self,filepath:str,limit=1_000_000):
-        
-        self.fens           = [] 
+
+        self.fens           = []
         self.evaluations    = []
-        self.distros        = [] 
+        self.distros        = []
         self.data           = []
 
 
@@ -111,7 +111,7 @@ class stockfishExpDataSet(Dataset):
             #Fix to full path
             filename    = os.path.join(filepath,filename)
 
-            #Load game 
+            #Load game
             with open(filename,"r") as file:
                 game_data   = json.loads(file.read())
 
@@ -129,7 +129,7 @@ class stockfishExpDataSet(Dataset):
 
     def __getitem__(self,i:int):
         return self.fens[i],self.evaluations[i],self.distros[i]
-    
+
     def __len__(self):
         return len(self.fens)
 
@@ -138,7 +138,7 @@ class stockfishExpDataSet(Dataset):
 
 def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=.0001,wd=0,betas=(.5,.75),n_epochs=1):
 
-    #Get data items together 
+    #Get data items together
     dataloader      = DataLoader(dataset,batch_size=bs,shuffle=True)
 
     #Get training items together
@@ -150,11 +150,11 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
     chess_model.train()
 
     #Save losses
-    p_losses        = [] 
-    v_losses        = [] 
-    p_ep_loss       = [] 
-    v_ep_loss       = [] 
-    sum_losses      = [] 
+    p_losses        = []
+    v_losses        = []
+    p_ep_loss       = []
+    v_ep_loss       = []
+    sum_losses      = []
 
     for ep_num in range(n_epochs):
         for i, batch in enumerate(dataloader):
@@ -173,12 +173,12 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             #Get model out
             probs,evals             = chess_model.forward(board_repr)
 
-            #Get losses 
-            p_loss                  = loss_fn_p(probs,distr) 
+            #Get losses
+            p_loss                  = loss_fn_p(probs,distr)
             v_loss                  = loss_fn_v(z_vals,evals)
             model_loss              = p_loss + v_loss
-            
-            #Save 
+
+            #Save
             p_losses.append(p_loss)
             v_losses.append(v_loss)
 
@@ -205,15 +205,15 @@ def check_vs_stockfish(chess_model:model.ChessModel):
     v_losses        = []
     p_losses        = []
 
-    #Get baseline data ready 
+    #Get baseline data ready
     with open('baseline/moves.txt','r') as file:
         baseline_data   = json.loads(file.read())
 
     #Prep model
     chess_model     = chess_model.eval().to(DEVICE)
-    
+
     with torch.no_grad():
-        
+
         for experience in baseline_data[:64]:
 
             #Get data
@@ -223,7 +223,7 @@ def check_vs_stockfish(chess_model:model.ChessModel):
             probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
             board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
 
-            #Get model 
+            #Get model
             prob,eval   = chess_model.forward(board_repr)
 
             p_losses.append(loss_fn_p(prob,board_prob).cpu().detach().item())
@@ -241,13 +241,13 @@ def train_on_stockfish(chess_model:model.ChessModel):
     v_losses        = []
     p_losses        = []
 
-    #Get baseline data ready 
+    #Get baseline data ready
     with open('baseline/moves.txt','r') as file:
         baseline_data   = json.loads(file.read())
 
     #Prep model
     chess_model     = chess_model.train().to(DEVICE)
-    
+
 
     for experience in baseline_data:
 
@@ -260,7 +260,7 @@ def train_on_stockfish(chess_model:model.ChessModel):
         probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
         board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
 
-        #Get model 
+        #Get model
         prob,eval   = chess_model.forward(board_repr)
 
         p_loss      = loss_fn_p(prob,board_prob)
@@ -284,8 +284,8 @@ def showdown_match(args_package):
     model1,model2,n_iters   = args_package
 
     board           = chess.Board()
-    max_game_ply    = 200 
-    
+    max_game_ply    = 200
+
     engine1         = MCTree(max_game_ply=max_game_ply)
     engine1.load_dict(model1)
     engine2         = MCTree(max_game_ply=max_game_ply)
@@ -293,16 +293,16 @@ def showdown_match(args_package):
 
     while not board.is_game_over() and (board.ply() <= max_game_ply):
 
-        #Make white move 
+        #Make white move
         move_probs  = engine1.evaluate_root(n_iters=n_iters) if board.turn else engine2.evaluate_root(n_iters=n_iters)
         placehold   = engine2.perform_iter() if board.turn else engine1.perform_iter()
 
         #find best move
         top_move        = None
-        top_visits      = -1 
+        top_visits      = -1
         for move,n_visits in move_probs.items():
             if n_visits > top_visits:
-                top_move    = move 
+                top_move    = move
                 top_visits  = n_visits
 
         #Make move
@@ -315,7 +315,7 @@ def showdown_match(args_package):
     if board.result() == "1-0":
         return 1
     elif board.result() == '0-1':
-        return -1 
+        return -1
     else:
         return 0
 
@@ -323,8 +323,8 @@ def showdown_match(args_package):
 def matchup(n_games,challenger,champion,n_iters,n_threads=4):
 
     model1_wins         = 0
-    model2_wins         = 0 
-    draws               = 0 
+    model2_wins         = 0
+    draws               = 0
 
     # model1.eval()
     # model2.eval()
@@ -339,7 +339,7 @@ def matchup(n_games,challenger,champion,n_iters,n_threads=4):
             model2_wins += 1
         else:
             draws += 1
-    
+
     with multiprocessing.Pool(n_threads) as pool:
         results             = pool.map(showdown_match,[(champion,challenger,n_iters) for _ in range(n_games//2)])
     pool.close()
@@ -350,7 +350,7 @@ def matchup(n_games,challenger,champion,n_iters,n_threads=4):
             model2_wins += 1
         else:
             draws += 1
-    
+
     return model1_wins,model2_wins,draws
 
 
@@ -367,9 +367,9 @@ def perform_training(chess_model):
         print(f"\t\tp_baseline: {pl:.4f}\n\t\tv_baseline: {vl:.4f}\n\n\n")
     pl,vl   = check_vs_stockfish(chess_model)
     print(f"\tp_baseline: {pl:.4f}\n\tv_baseline: {vl:.4f}\n\n")
-    
 
-    #Save to file 
+
+    #Save to file
     torch.save(chess_model.state_dict(),"chess_model_iter2.dict")
 
 
@@ -378,12 +378,10 @@ if __name__ == '__main__':
 
 
     #Good model
-    model1          = model.ChessModel2(19,24).cuda()
-    model1.load_state_dict(torch.load("chess_model_iter3.dict"))
-    
+    model1          = model.ChessModel(19,16,act=torch.nn.ReLU).cuda()
+
     #Bad model
-    model2         = model.ChessModel2(19,24).cuda()
-    model2.load_state_dict(torch.load("chess_model_iter3.dict"))
+    model2         = model.ChessModel(19,16,act=torch.nn.GELU).cuda()
 
 
     p1,l1           = check_vs_stockfish(model1)
@@ -397,11 +395,4 @@ if __name__ == '__main__':
     p2,l2           = check_vs_stockfish(model2)
 
     print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
-    torch.save(model1.state_dict(),"chess_model_iter5.dict")
     exit()
-
-    one,two,draw    = matchup(20,torch.load("chess_model_iter3.dict"),torch.load("chess_model_iter2.dict"),n_iters=800)
-
-    print(f"outcome: {one}-{two}:{draw}")
-    torch.cuda.synchronize()
-    torch.cuda.empty_cache()
