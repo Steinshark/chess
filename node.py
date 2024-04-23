@@ -25,7 +25,7 @@ class Node:
 
 
 
-    def __init__(self,move:chess.Move,parent,init_p:float|torch.Tensor,depth,turn:bool):
+    def __init__(self,move:chess.Move,parent,prior_p:float|torch.Tensor,depth,turn:bool):
 
         #Postition related vars
         self.move               = move
@@ -41,18 +41,19 @@ class Node:
 
         #Node related vars and such
         self.n_visits           = 0
-        self.init_p             = init_p
+        self.prior_p            = prior_p
         self.n_wins             = 0
         self.cumulative_score   = 0
+        self.key                = None
 
         #precompute val for score computation (good speedup)
-        self.precompute         = -1*self.turn*self.c * float(self.init_p)
+        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
 
 
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
-        self.precompute         = -1*self.turn*self.c * float(self.init_p)
+        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
 
 
     #Make mctree code cleaner by wrapping this
@@ -180,7 +181,7 @@ class Node:
 
     #???
     def data_repr(self):
-        return f"{self.move} vis:{self.n_visits},pvis:{self.parent.n_visits if self.parent else 0},win:{self.n_wins},p:{self.init_p:.2f},scr:{self.get_score_str()}"
+        return f"{self.move} vis:{self.n_visits},pvis:{self.parent.n_visits if self.parent else 0},win:{self.n_wins},p:{self.prior_p:.2f},scr:{self.get_score_str()}"
 
 
     #Used once a move is pushed onto the actual game board.
