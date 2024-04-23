@@ -25,7 +25,7 @@ import random
 class MCTree:
 
 
-    def __init__(self,id:int,max_game_ply=160,n_iters=800,lookup_dict={},device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),alpha=.3,epsilon=.25):
+    def __init__(self,id:int,max_game_ply=160,n_iters=800,lookup_dict={},device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),alpha=.3,epsilon=.2):
 
 
         #Create game board
@@ -55,7 +55,7 @@ class MCTree:
         self.awaiting_eval          = False
         self.game_datapoints        = []
         self.id                     = id
-
+        self.start_time             = time.time()
         #Check override device
         self.device                 = device
 
@@ -77,20 +77,31 @@ class MCTree:
 
 
     def perform_nongpu_iter(self):
-
         #Check if time to make a move
         if self.root.n_visits > self.n_iters:
             self.reached_iters          = True 
+            self.awaiting_eval          = False
+            self.pending_fen            = None 
+
+            for _ in range(self.curdepth):
+                self.board.pop()
+            self.curdepth               = 0
             return 
             #self.make_move()
             
             
         #Get to bottom of tree via traversal algorithm
-        curnode                 = self.root
+        curnode                         = self.root
+        mk                              = 0
         while not curnode.is_leaf():
-            curnode         = curnode.pick_best_child()
-            self.board.push(curnode.move)
-            self.curdepth   += 1
+            try:
+                curnode         = curnode.pick_best_child()
+                self.board.push(curnode.move)
+                self.curdepth   += 1
+                mk += 1
+            except AssertionError:
+                print(f"id {self.id} {self.board.fen()} failed to push {curnode.move} after {mk}")
+                exit()
 
         #Node key
         curnode.key                     = " ".join(self.board.fen().split(" ")[:4])
@@ -144,7 +155,6 @@ class MCTree:
         self.curdepth = 0
 
 
-
     #Call to begin search down a root. The root may already have
     #   children. Dirichlet noise is always added to root.
     def evaluate_root(self,n_iters=1000):
@@ -177,12 +187,10 @@ class MCTree:
         top_visits                  = 0 
 
         for move,visit_count in [(child.move,child.n_visits) for child in self.root.children]:
-            #print(f"{move}->{visit_count}")
             if visit_count > top_visits:
                 top_move            = move 
                 top_visits          = visit_count
         
-                #print(f"best move is {top_move}")
         #print(f"id {self.id}-> {top_move}")
         #input(f"id {self.id}-> {[f'{node.get_score().item():.3f}' for node in self.root.children]}")
         return top_move
@@ -203,15 +211,20 @@ class MCTree:
         self.game_datapoints.append(datapoint)
 
         #Get move from probabililtes 
+        #print(f"{board_fen}\nroot:{self.root.move}")
         move                        = self.get_top_move(greedy=True)
 
         #Push move to board
         self.board.push(move)
+        print(f"{self.id} -> {move}")
 
         #check gameover
         if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
             self.game_result        = Node.RESULTS[self.board.result()]
             self.game_datapoints    = [(item[0],item[1],self.game_result) for item in self.game_datapoints]
+            self.end_time           = time.time()
+            self.run_time           = self.end_time - self.start_time
+
         
         else:
             #update tree
@@ -319,6 +332,7 @@ class MCTree_Handler:
             self.static_tensorCPU_V.pin_memory()
 
 
+    #Load a state dict for the common model
     def load_dict(self,state_dict):
         self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,24).to(self.device)
 
@@ -347,10 +361,10 @@ class MCTree_Handler:
 
 
     #Performs an algorithm iteration filling the gpu to its batchsize
-    def collect_data(self):
+    def collect_data(self,n_exps=32_768):
 
-        #Wait until everyone needs a gpu
-        while False in [tree.gpu_blocking for tree in self.active_trees]:
+        #Gather n_exps
+        while len(self.dataset) < n_exps:
             
             #Get all trees to the point that they require 
             #   a GPU eval
@@ -360,15 +374,16 @@ class MCTree_Handler:
             with torch.no_grad():
                 model_batch                             = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).float().to(self.device) #CPU SPECIFIC
                 priors,evals                            = self.chess_model.forward(model_batch)
+                evals                                   = evals.numpy()
                 
                 for prior_probs,evaluation,tree in zip(priors,evals,self.active_trees):
                     
                     #Correct probs for legal moves 
                     revised_numpy_probs                 = numpy.take(prior_probs.numpy(),[chess_utils.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()])
                     revised_numpy_probs                 = chess_utils.normalize_numpy(revised_numpy_probs,1)
-
+                    
                     #Add to lookup dict 
-                    self.lookup_dict[tree.curnode.key]  = (revised_numpy_probs,evaluation)
+                    self.lookup_dict[tree.curnode.key]  = (revised_numpy_probs,evaluation[0])
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
@@ -376,24 +391,24 @@ class MCTree_Handler:
                 #Perform the expansion relying on GPU 
             [tree.perform_expansion() for tree in self.active_trees]
 
-            #print(f"dataset size is {len(self.dataset)}")
+        
+        return self.dataset
    
-   
+
+    #Handle gameover behavior for a given tree
     def check_gameover(self,tree:MCTree,i:int):
 
         if not tree.game_result is None:
 
-            print(f"GAMEOVER - replacing tree after {len(tree.game_datapoints)}")
+            #print(f"GAMEOVER {tree.id} - replacing tree after {len(tree.game_datapoints)} in {(tree.run_time)/(len(tree.game_datapoints)):.2f}s/move")
                     
             #Add old tree game experiences to datapoints
             self.dataset            += tree.game_datapoints
 
             #replace tree inplace 
             new_tree                = MCTree(tree.id,self.max_game_ply,self.n_iters,self.lookup_dict,self.device)
-
             self.active_trees[i]    =    new_tree
             self.active_trees[i].perform_nongpu_iter()
-            input(f"replaced tree")
 
         #Tree will start another search
         else:
@@ -402,14 +417,14 @@ class MCTree_Handler:
 
     #This method will get all boards to a state where they require a GPU evaluation
     def pre_process(self):
-
+        
+        
         #assume everyone is starting with a 
         while None in [tree.pending_fen for tree in self.active_trees]:
-
             #Perform tree-search until EITHER:
-            #   Node needs a gpu eval 
+            #   Node needs a gpu eval (NEEDS TO BE ROLLED BACK)
             #   Node is ready to push moves
-            [tree.perform_nongpu_iter() for tree in self.active_trees]
+            [tree.perform_nongpu_iter() for tree in self.active_trees if tree.pending_fen is None]
 
             #Check why we got a None value 
             for i,tree in enumerate(self.active_trees):
@@ -431,24 +446,13 @@ class MCTree_Handler:
         # input(f"all ready for GPU COMPUTE")
 
 
-    #This method gets all trees to a state ready to request a GPU evaluation of the 
-    #   position
-    def push_moves_on_boards(self):
-
-
-        for i,tree in enumerate(self.active_trees):
-
-            #Tree is ready to make a move
-            if tree.reached_iters:
-                tree.make_move()
-                self.check_gameover(tree)
-
-            else:
-                pass
-
-
 
 #DEBUG puporses
 if __name__ == '__main__':
-    manager                 = MCTree_Handler(4,max_game_ply=200,n_iters=200)
-    manager.collect_data()
+    t0 = time.time()
+    manager                 = MCTree_Handler(8,max_game_ply=200,n_iters=200)
+    data                    = manager.collect_data(n_exps=512)
+
+    print(f"collected {len(data)} - {(time.time()-t0)/len(data):.4f}s/move")
+
+

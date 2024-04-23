@@ -171,7 +171,7 @@ class Node:
 
     #Passes up the value recieved at the leaf and updates the visit count
     def bubble_up(self,outcome):
-
+        
         self.cumulative_score += outcome
         self.n_visits           += 1
 
