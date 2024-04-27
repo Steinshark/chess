@@ -58,10 +58,15 @@ class MCTree:
 
         #Create template in GPU to copy boardstate into
         #   if using cpu, these are not send to GPU and not pinned
-        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-
+        
+        # CPU SPECIFIC 
+        # self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
+        # self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        # self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        #/CPU SPECIFIC
         #Only pin memory if using a CUDA device 
         if not self.device  == torch.device('cpu'):
             self.static_tensorCPU_P.pin_memory()            
@@ -90,10 +95,14 @@ class MCTree:
             
 
         #As of not, not retracing due to memory issues??
-        self.chess_model            = self.chess_model.eval().half().to(self.device)
+        self.chess_model            = self.chess_model.eval().to(self.device)#.half()
+
+        # CPU SPECIFIC
         torch.backends.cudnn.enabled    = True
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
+        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
+        #/CPU SPECIFIC
         
 
     #Perform one exploration down the tree
