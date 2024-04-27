@@ -8,6 +8,7 @@ import torch
 import numpy 
 import chess 
 import json 
+from chess import engine
 
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
@@ -16,6 +17,10 @@ MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVE
 I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
 TENSOR_CHANNELS = 19
+
+def build_engine():
+    engine              = engine.SimpleEngine.popen_uci("C:/gitrepos/stockfish/sf16.exe")
+    return engine
 
 def fen_processor(fen:str):
     for i in range(1,9):

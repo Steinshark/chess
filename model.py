@@ -10,7 +10,7 @@ import chess_utils
 class ChessModel(torch.nn.Module):
 
 
-    def __init__(self,in_ch:int=19,n_channels:int=16,lin_act=torch.nn.GELU,conv_act=torch.nn.GELU):
+    def __init__(self,in_ch:int=19,n_channels:int=16,lin_act=torch.nn.GELU,conv_act=torch.nn.GELU,all_prelu=False,p=.5):
 
         super(ChessModel,self).__init__()
         #n_channels is set to 16 currently
@@ -20,16 +20,21 @@ class ChessModel(torch.nn.Module):
 
         inter_sum     = v_conv_n+h_conv_n+f_conv_n
 
+        if "PReLU" in str(conv_act) and all_prelu:
+            act_kwargs      = {'num_parameters':v_conv_n}
+        else:
+            act_kwargs      = {} 
+
 
 
         #LAYER 1
         self.vconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
@@ -39,11 +44,11 @@ class ChessModel(torch.nn.Module):
         #LAYER 2
         self.vconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.hconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.fullconv2      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
@@ -53,11 +58,11 @@ class ChessModel(torch.nn.Module):
         #LAYER3
         self.vconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.hconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act())
+                                                  conv_act(**act_kwargs))
 
         self.fullconv3      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
@@ -68,7 +73,6 @@ class ChessModel(torch.nn.Module):
         self.final_conv     = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,32,3,1,1,bias=False),
                                                   torch.nn.BatchNorm2d(32),
                                                   conv_act(),
-
                                                   torch.nn.Flatten(start_dim=1)
         )
 
@@ -79,7 +83,7 @@ class ChessModel(torch.nn.Module):
 
         #V
         self.val_head       = torch.nn.Sequential(torch.nn.Linear(32*8*8,512),
-                                                  torch.nn.Dropout(p=.5),
+                                                  torch.nn.Dropout(p=p),
                                                   lin_act(),
                                                   torch.nn.Linear(512,1),
                                                   torch.nn.Tanh())
@@ -100,9 +104,9 @@ class ChessModel(torch.nn.Module):
         c2                  = torch.cat([v2,h2,f2],dim=1)
 
         #Round3
-        v3                  = self.vconv2(c2)
-        h3                  = self.hconv2(c2)
-        f3                  = self.fullconv2(c2)
+        v3                  = self.vconv3(c2)
+        h3                  = self.hconv3(c2)
+        f3                  = self.fullconv3(c2)
         c3                  = torch.cat([v3,h3,f3],dim=1)
 
         #Final
@@ -115,7 +119,7 @@ class ChessModel(torch.nn.Module):
 if __name__ == "__main__":
     import time
     torch.jit.enable_onednn_fusion(True)
-    m       = ChessModel2(19,24).float().eval()
+    m       = ChessModel(19,24).float().eval()
     m = torch.jit.trace(m, [torch.randn(size=(16,19,8,8),device=torch.device('cpu'),dtype=torch.float32)])
     # Invoking torch.jit.freeze
     m = torch.jit.freeze(m)

@@ -19,7 +19,6 @@ import random
 
 
 #TODO 
-#   Add dirichlet noise to the root node
 #   Re-configure for GPU evaluation
 
 class MCTree:
@@ -76,6 +75,9 @@ class MCTree:
             self.static_tensorCPU_V.pin_memory()
 
 
+    #Performs tree expansions until it finds a node that requires an evaluation 
+    #   Recursively calls itself until the tree is pending an evaluation, in which case
+    #   class variables are updated to communicate with the handler
     def perform_nongpu_iter(self):
         #Check if time to make a move
         if self.root.n_visits > self.n_iters:
@@ -117,8 +119,13 @@ class MCTree:
             self.awaiting_eval          = True
             
 
-    #The evaluation will be in the lookup_dict now 
+    #Perform a post-GPU call expansion of the nodes. 
+    #   The idea is that after a GPU batch is run, the results are placed into the 
+    #   lookup dict and a 'perform_expansion' can be done without the next move requiring
+    #   an evaluation
     def perform_gpu_expansion(self):
+
+        #Expand, now that we have the value in the dict
         self.perform_expansion()
 
         #Reset gpu-pending vars 
@@ -155,32 +162,9 @@ class MCTree:
         self.curdepth = 0
 
 
-    #Call to begin search down a root. The root may already have
-    #   children. Dirichlet noise is always added to root.
-    def evaluate_root(self,n_iters=1000):
-
-        self.common_nodes   = {}
-
-        #First iter will add Dirichlet noise to prior Ps of root children
-        self.perform_iter(initial=True)
-
-        #All resultant iters will not have dirichlet addition
-        for _ in range(n_iters):
-            self.perform_iter()
-
-        return {c.move:c.n_visits for c in self.root.children}
-
-
-    #This function will add additional compute to the tree.
-    def add_compute(self,n_iters):
-
-        for _ in range(n_iters):
-            self.perform_iter()
-
-        return {c.move:c.n_visits for c in self.root.children}
-
-
-    #Pick the top move
+    #Pick the top move.
+    #   argument 'greedy' determines if it will be based on max move count, 
+    #   or sampling from the distribution
     def get_top_move(self,greedy=True):
 
         top_move                    = None 
