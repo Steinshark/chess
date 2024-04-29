@@ -60,7 +60,7 @@ class Client_Manager(Thread):
         self.lock                   = False
 
         #Set 500 sec timeout 
-        self.client_socket.settimeout(500)
+        self.client_socket.settimeout(3600/2)
 
         print(f"\n\t{Color.green}launched a new client manager for {Color.tan}{self.client_address}\n{Color.end}")
 
@@ -626,7 +626,7 @@ class Server(Thread):
         
         #Send updated model and unlock
         for client_manager in self.client_managers:
-            client_manager.state_dict                   = self.model_state
+            client_manager.top_model_params                 = self.model_state
             client_manager.unlock()
 
 
