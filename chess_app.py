@@ -23,6 +23,7 @@ from tkinter.ttk    import Checkbutton, Button,Entry, Label
 from tkinter.ttk    import Combobox, Progressbar
 from ttkthemes import ThemedTk
 from cairosvg import svg2png
+import Client
 import chess_player
 from tkinter.ttk import Frame, Style
 
@@ -38,7 +39,8 @@ from pprint import pp
 #ML related
 import torch 
 import numpy
-import net_chess
+from Client import Client 
+from net_chess import Server
 import mctree
 
 #Network related 
@@ -56,7 +58,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [os.path.join("generations",fname) for fname in os.listdir("generations") if "gen_" in fname and ".dict" in fname]
 
-SERVER_IP               = '192.168.1.173'
+SERVER_IP               = '192.168.68.100'
 
 #A GUI program to make life easier
 class ChessApp:
@@ -306,14 +308,14 @@ class ChessApp:
     
     #Run this as a server (handles training algorithm)
     def run_as_server(self):
-        self.server                 = net_chess.Server(address=SERVER_IP,pack_len=self.pack_len)
+        self.server                 = Server(address=SERVER_IP,pack_len=self.pack_len)
         self.server.load_models()       
         self.server.start()          
     
 
     #Run this as a worker (Generates training data)
     def run_as_worker(self,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')):
-        self.client                     = net_chess.Client(device=device,address=SERVER_IP,pack_len=self.pack_len)
+        self.client                     = Client(device=device,address=SERVER_IP,pack_len=self.pack_len)
         self.client.start()
 
 

@@ -15,15 +15,9 @@ import math
 class Node:
 
     #Determine exploration tendency
-<<<<<<< HEAD
-    c           = 2
-    
-    #For easy game outcome sorting
-=======
     c           = 3
 
     #For easy game outcome mapping
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
     RESULTS     = {"1/2-1/2":0,
                    "*":0,
                    "1-0":1,
@@ -182,13 +176,8 @@ class Node:
 
     #Passes up the value recieved at the leaf and updates the visit count
     def bubble_up(self,outcome):
-<<<<<<< HEAD
-
-        self.cumulative_score   += outcome
-=======
         
         self.cumulative_score += outcome
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
         self.n_visits           += 1
 
         if not self.parent is None:

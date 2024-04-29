@@ -19,6 +19,7 @@ import random
 import time 
 import json 
 from matplotlib import pyplot as plt  
+import zstandard 
 
 
 class probPreSet:
@@ -37,6 +38,13 @@ class probPreSet:
     def __len__(self):
         return len(self.distributions)
 
+
+def decompress_zst(filename:str):
+    decompressor        = zstandard.ZstdDecompressor()
+    with open(filename, "rb") as reader, open(filename.replace(".zst",""),"wb") as writer:
+
+        decompressor.copy_stream(reader,writer,write_size=65536)
+    
 
 def parse_multiple(gametest_lists):
     common_dict         = []
@@ -74,7 +82,7 @@ def parse_movelist(gametext):
 def train_probs(model:ChessModel,dataset:probPreSet,testset:probPreSet,lr=.001,bs=1024,betas=(.5,.9),wd=.01):
 
     #Prep model
-    model.train().float()
+    model.train().float().to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     optimizer               = torch.optim.Adam(model.parameters(),lr=lr,betas=betas,weight_decay=wd)
     #optimizer               = torch.optim.SGD(model.parameters(),lr=lr,momentum=.5,nesterov=True)
     accuracies              = [] 
@@ -120,8 +128,8 @@ def train_probs(model:ChessModel,dataset:probPreSet,testset:probPreSet,lr=.001,b
 def create_probs_from_pgn(pgn_file:str):
 
 
-    #position_map            = {}
-    position_map            = json.loads(open("positions.dict",'r').read())
+    position_map            = {}
+    #position_map            = json.loads(open("positions.dict",'r').read())
     startfne    = " ".join(chess.Board().fen().split(" ")[:4])
     #Open file and parse all games into their moves
     with open(pgn_file,'r') as file:
@@ -131,10 +139,10 @@ def create_probs_from_pgn(pgn_file:str):
         #   start with [Event...]
         #   end with  
         
-        #games           = file.read().split("Event")
-        for _ in range(50_000_000):
-            file.__next__()
-        games           = "".join([file.__next__() for _ in range(50_000_000)]).split("Event")
+        games           = file.read().split("Event")
+        # for _ in range(50_000_000):
+        #     file.__next__()
+        #games           = "".join([file.__next__() for _ in range(50_000_000)]).split("Event")
         print(f"Read games")
         split_2         = '\n\n'
         games           = [gametext for gametext in games if "\n\n1." in gametext]
@@ -389,19 +397,21 @@ def generate_experiences(pack):#chess_model:ChessModel2,n_iters=16*4096):
 
 if __name__ == "__main__":
 
-    #create_probs_from_pgn("C:/users/evere/Downloads/March2016.pgn")
-
-    accuracies      = { (torch.nn.RReLU,64,.0002,0,True):[],
-                        (torch.nn.PReLU,512,.0005,0,True):[],
-                        (torch.nn.PReLU,1024,.0005,0,True):[],
-                        (torch.nn.PReLU,2048,.001,0,True):[]}
+    # for fname in ["C:/data/chess/LichessJune2014.pgn.zst","C:/data/chess/LichessJuly2014.pgn.zst"]:
+    #     decompress_zst(fname)
+    # create_probs_from_pgn("C:/data/chess/LichessJune2014.pgn")
+    # exit()
+    accuracies      = { #(torch.nn.RReLU,64,.0002,0,True):[],
+                        #(torch.nn.PReLU,128,.0002,0,True):[],
+                        (torch.nn.PReLU,256,.0005,0,True):[],
+                        (torch.nn.PReLU,512,.0005,0,True):[],}
     
     training_set            = parse_probabilities()
     print(f"loaded {len(training_set)} datapoints")
 
 
-    testing_set     = training_set[-16384:]
-    training_set    = training_set[:-16384]
+    testing_set     = training_set[-4096:]
+    training_set    = training_set[:-4096]
     print(f"test: {len(testing_set)}\t train: {len(training_set)}")
 
     dataset         = probPreSet(training_set)

@@ -7,7 +7,7 @@
 import multiprocessing
 import multiprocessing.pool
 import torch
-from model import ChessModel2
+from model import ChessModel
 import mctree
 from mctree import MCTree
 import chess
@@ -172,7 +172,7 @@ def generate_training_games(model_dict:str,max_game_ply=160,n_iters=800,n_traini
 
 
 #Trains the model on the given experiences
-def train_model(iter:int,chess_model:ChessModel2,experiences,bs=1024,lr=.001,wd=.01,betas=(.5,.75),n_epochs=1):
+def train_model(iter:int,chess_model:ChessModel,experiences,bs=1024,lr=.001,wd=.01,betas=(.5,.75),n_epochs=1):
 
     #Get data items together 
     dataloader      = DataLoader(TrainerExpDataset(experiences),batch_size=bs,shuffle=True)
@@ -229,5 +229,5 @@ def train_model(iter:int,chess_model:ChessModel2,experiences,bs=1024,lr=.001,wd=
 
 
 if __name__ == "__main__":
-    m   = ChessModel2().state_dict()
+    m   = ChessModel().state_dict()
     play_game(m,n_iters=400,device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'))

@@ -13,149 +13,23 @@ class ChessModel(torch.nn.Module):
     def __init__(self,in_ch:int=19,n_channels:int=16,lin_act=torch.nn.GELU,conv_act=torch.nn.GELU,all_prelu=False,p=.5):
 
         super(ChessModel,self).__init__()
-<<<<<<< HEAD
-
-        self.v_conv_n      = n_channels
-        self.h_conv_n      = n_channels
-        self.q_conv_n      = n_channels//2
-
-        self.conv_act       = torch.nn.functional.gelu
-        self.lin_act        = torch.nn.functional.relu
-        self.softmax        = torch.nn.functional.softmax
-        self.lin_upsc       = 0
-
-        #Views of board Layer1
-        self.vert_conv1     = torch.nn.Conv2d(in_ch,self.v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0))
-        self.horz_conv1     = torch.nn.Conv2d(in_ch,self.h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7))
-        self.quad_conv1     = torch.nn.Conv2d(in_ch,self.q_conv_n,kernel_size=(7),stride=1,padding=3)
-        #self.linear_l1      = torch.nn.Sequential(torch.nn.Flatten(1),torch.nn.Linear(in_ch*8*8,in_ch*8*8*self.lin_upsc),torch.nn.Unflatten(dim=1,unflattened_size=(in_ch*self.lin_upsc,8,8)))
-
-        #Views of board Layer2 
-        self.vert_conv2     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0))
-        self.horz_conv2     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7))
-        self.quad_conv2     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.q_conv_n,kernel_size=(7),stride=1,padding=3)
-        #self.linear_l2      = torch.nn.Sequential(torch.nn.Flatten(1),torch.nn.Linear(in_ch*8*8*self.lin_upsc,in_ch*8*8*self.lin_upsc*self.lin_upsc),torch.nn.Unflatten(dim=1,unflattened_size=(in_ch*self.lin_upsc,8,8)))
-
-        #Views of board Layer3
-        self.vert_conv3     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0))
-        self.horz_conv3     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7))
-        self.quad_conv3     = torch.nn.Conv2d(self.lin_upsc*in_ch+self.v_conv_n+self.h_conv_n+self.q_conv_n,self.q_conv_n,kernel_size=(7),stride=1,padding=3)
-        #self.linear_l3      = torch.nn.Sequential(torch.nn.Flatten(1),torch.nn.Linear(in_ch*8*8*self.lin_upsc,in_ch*8*8*self.lin_upsc*self.lin_upsc),torch.nn.Unflatten(dim=1,unflattened_size=(in_ch*self.lin_upsc,8,8)))
-
-        self.flatten        = torch.nn.Flatten()
-
-        self.p_module       = torch.nn.Sequential(torch.nn.Linear(8*8*(self.v_conv_n+self.h_conv_n+self.q_conv_n+in_ch*self.lin_upsc),len(chess_utils.CHESSMOVES)),
-                                                  torch.nn.Softmax(dim=1))
-        
-        self.v_module       = torch.nn.Sequential(
-                        torch.nn.Linear(8*8*(self.v_conv_n+self.h_conv_n+self.q_conv_n+in_ch*self.lin_upsc),1024),
-                        torch.nn.Dropout(p=.5),
-                        torch.nn.PReLU(1),
-
-                        torch.nn.Linear(1024,256),
-                        torch.nn.Dropout(p=.1),
-                        torch.nn.PReLU(1),
-
-                        torch.nn.Linear(256,1),
-                        torch.nn.Tanh()
-        )
-
-            
-    def forward(self,x:torch.Tensor) -> torch.Tensor:
-        
-        #ITER1 Get vertical, horizontal, and square convolutions 
-        vert_convolutions1  = self.conv_act(self.vert_conv1(x))                                         #Out    = (32,8,8)
-        horz_convolutions1  = self.conv_act(self.horz_conv1(x))                                         #Out    = (32,8,8)
-        quad_convolutions1  = self.conv_act(self.quad_conv1(x))                                         #Out    = (32,8,8)
-        #linear_outputs1      = self.linear_l1(x)
-        comb_convolutions1  = torch.cat([vert_convolutions1,horz_convolutions1,quad_convolutions1],dim=1)#,linear_outputs1],dim=1)
-
-        vert_convolutions2  = self.conv_act(self.vert_conv2(comb_convolutions1))                        #Out    = (96,8,8)
-        horz_convolutions2  = self.conv_act(self.horz_conv2(comb_convolutions1))                        #Out    = (96,8,8)
-        quad_convolutions2  = self.conv_act(self.quad_conv2(comb_convolutions1))                        #Out    = (96,8,8)
-       # linear_outputs2     = self.linear_l2(linear_outputs1)
-        comb_convolutions2  = torch.cat([vert_convolutions2,horz_convolutions2,quad_convolutions2],dim=1)#,linear_outputs2],dim=1)
-
-        vert_convolutions3  = self.conv_act(self.vert_conv3(comb_convolutions2))                        #Out    = (96 ,8,8)
-        horz_convolutions3  = self.conv_act(self.horz_conv3(comb_convolutions2))                        #Out    = (96 ,8,8)
-        quad_convolutions3  = self.conv_act(self.quad_conv3(comb_convolutions2))                        #Out    = (96 ,8,8)
-        #linear_outputs3     = self.linear_l3(linear_outputs2)
-        comb_convolutions3  = torch.cat([vert_convolutions3,horz_convolutions3,quad_convolutions3],dim=1)#,linear_outputs3],dim=1)
-
-        x                   = self.flatten(comb_convolutions3)
-
-        #Get p val 
-        return self.p_module(x),self.v_module(x)
-        
-class ChessModel2(torch.nn.Module):
-
-
-    def __init__(self,in_ch:int=19,n_channels:int=16):
-
-        super(ChessModel2,self).__init__()
-        #n_channels is set to 24 currently 
-=======
         #n_channels is set to 16 currently
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
         v_conv_n      = n_channels
         h_conv_n      = n_channels
         f_conv_n      = n_channels//2
 
         inter_sum     = v_conv_n+h_conv_n+f_conv_n
 
-<<<<<<< HEAD
-        conv_act      = torch.nn.LeakyReLU
-        lin_act       = torch.nn.LeakyReLU
-=======
         if "PReLU" in str(conv_act) and all_prelu:
             act_kwargs      = {'num_parameters':v_conv_n}
         else:
             act_kwargs      = {} 
 
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
 
 
         #LAYER 1
         self.vconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
-<<<<<<< HEAD
-                                                  conv_act(.1))
-        
-        self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
-                                                  torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act(.1))
-        
-        self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
-                                                  torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act(.1))
-        
-        #LAYER 2
-        self.vconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
-                                                  torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act(.1))
-        
-        self.hconv2         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
-                                                  torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act(.1))
-        
-        self.fullconv2      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
-                                                  torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act(.1))
-        
-        #LAYER3
-        self.vconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
-                                                  torch.nn.BatchNorm2d(v_conv_n),
-                                                  conv_act(.1))
-        
-        self.hconv3         = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
-                                                  torch.nn.BatchNorm2d(h_conv_n),
-                                                  conv_act(.1))
-        
-        self.fullconv3      = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,f_conv_n,kernel_size=(5),stride=1,padding=2,bias=False),
-                                                  torch.nn.BatchNorm2d(f_conv_n),
-                                                  conv_act(.1))
-        
-=======
                                                   conv_act(**act_kwargs))
 
         self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
@@ -194,7 +68,6 @@ class ChessModel2(torch.nn.Module):
                                                   torch.nn.BatchNorm2d(f_conv_n),
                                                   conv_act())
 
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
 
         #FINAL LAYER
         self.final_conv     = torch.nn.Sequential(torch.nn.Conv2d(inter_sum,32,3,1,1,bias=False),
@@ -205,23 +78,14 @@ class ChessModel2(torch.nn.Module):
 
 
         #P
-        self.prob_head      = torch.nn.Sequential(torch.nn.Linear(32*8*8,2048),
-                                                  lin_act(.2),
-                                                  torch.nn.Linear(2048,1968),
+        self.prob_head      = torch.nn.Sequential(torch.nn.Linear(32*8*8,1968),
                                                   torch.nn.Softmax(dim=1))
 
         #V
         self.val_head       = torch.nn.Sequential(torch.nn.Linear(32*8*8,512),
-<<<<<<< HEAD
-                                                  #torch.nn.Dropout(p=.4),
-                                                  lin_act(.2),
-                                                  torch.nn.Linear(512,1),
-                                                  #torch.nn.Dropout(p=.4),
-=======
                                                   torch.nn.Dropout(p=p),
                                                   lin_act(),
                                                   torch.nn.Linear(512,1),
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
                                                   torch.nn.Tanh())
 
 
@@ -255,11 +119,7 @@ class ChessModel2(torch.nn.Module):
 if __name__ == "__main__":
     import time
     torch.jit.enable_onednn_fusion(True)
-<<<<<<< HEAD
-    m       = ChessModel2().float().eval()
-=======
     m       = ChessModel(19,24).float().eval()
->>>>>>> 61c6c08cd9b235f3db67875f869bdc2e81c3c2b7
     m = torch.jit.trace(m, [torch.randn(size=(16,19,8,8),device=torch.device('cpu'),dtype=torch.float32)])
     # Invoking torch.jit.freeze
     m = torch.jit.freeze(m)

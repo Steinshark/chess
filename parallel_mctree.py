@@ -9,12 +9,9 @@ import chess
 import time
 import model
 import torch
-import value_trainer
 import numpy
-import sys
 import chess_utils
 from collections import OrderedDict
-import random
 
 
 
@@ -57,22 +54,22 @@ class MCTree:
         self.start_time             = time.time()
         #Check override device
         self.device                 = device
-
+        self.t0  = time.time()
         #Create template in GPU to copy boardstate into
         #   if using cpu, these are not send to GPU and not pinned
 
         # CPU SPECIFIC
-        # self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        # self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        # self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        #self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
+        #self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        #self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        #self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float,requires_grad=False,device=self.device)
+        #self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        #self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
         #/CPU SPECIFIC
-        #Only pin memory if using a CUDA device
-        if not self.device  == torch.device('cpu'):
-            self.static_tensorCPU_P.pin_memory()
-            self.static_tensorCPU_V.pin_memory()
+        # #Only pin memory if using a CUDA device
+        # if not self.device  == torch.device('cpu'):
+        #     self.static_tensorCPU_P.pin_memory()
+        #     self.static_tensorCPU_V.pin_memory()
 
 
     #Performs tree expansions until it finds a node that requires an evaluation 
@@ -88,9 +85,7 @@ class MCTree:
             for _ in range(self.curdepth):
                 self.board.pop()
             self.curdepth               = 0
-            return 
-            #self.make_move()
-            
+            return         
             
         #Get to bottom of tree via traversal algorithm
         curnode                         = self.root
@@ -175,8 +170,9 @@ class MCTree:
                 top_move            = move 
                 top_visits          = visit_count
         
-        #print(f"id {self.id}-> {top_move}")
-        #input(f"id {self.id}-> {[f'{node.get_score().item():.3f}' for node in self.root.children]}")
+        if self.id == 0 and self.board.ply() == 0 and False:
+            print(f"id {self.id}-> {top_move}")
+            print(f"id {self.id}-> {[f'{node.n_visits:.3f}' for node in self.root.children]}")
         return top_move
     
 
@@ -189,9 +185,10 @@ class MCTree:
 
         #Save experience
         board_fen                   = self.board.fen()
-        post_probs                  = {node.move.uci() for node in self.root.children}
+        post_probs                  = {node.move.uci():node.n_visits for node in self.root.children}
+        q_value                     = self.root.get_q_score() 
         position_eval               = 0
-        datapoint                   = (board_fen,post_probs,position_eval)
+        datapoint                   = (board_fen,post_probs,position_eval,q_value)
         self.game_datapoints.append(datapoint)
 
         #Get move from probabililtes 
@@ -200,18 +197,19 @@ class MCTree:
 
         #Push move to board
         self.board.push(move)
-        print(f"{self.id} -> {move}")
+        # if self.id == 0:
+        #     print(f"{self.id} -> {self.board.ply()} {(time.time()-self.t0):.2f}s/move")
+        #     self.t0 = time.time()
 
         #check gameover
         if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
             self.game_result        = Node.RESULTS[self.board.result()]
-            self.game_datapoints    = [(item[0],item[1],self.game_result) for item in self.game_datapoints]
+            self.game_datapoints    = [(item[0],item[1],self.game_result,item[3]) for item in self.game_datapoints]
             self.end_time           = time.time()
             self.run_time           = self.end_time - self.start_time
 
         
         else:
-            #update tree
             self.chosen_branch  = self.root.traverse_to_child(move)
             del self.root
             self.root           = self.chosen_branch
@@ -284,63 +282,62 @@ class MCTree:
 #               of the explored leaf with the score
 class MCTree_Handler:
 
+
     def __init__(self,n_parallel=8,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),max_game_ply=160,n_iters=800):
 
+        #Game related variables 
         self.lookup_dict            = {}
-        self.active_trees          = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
-
-        self.device                 = device
-        self.chess_model            = model.ChessModel(19,16).to(self.device).eval()
-
-        self.dirichlet_a            = .3
-        self.dirichlet_e            = .2
-
-        self.dataset                = []
-
+        self.active_trees           = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
         self.max_game_ply           = max_game_ply
         self.n_iters                = n_iters
+        self.n_parallel             = n_parallel
 
+        #GPU related variables
+        self.device                 = device
+        self.chess_model            = model.ChessModel(19,16).to(self.device).eval().half()
 
+        #Training related variables
+        self.dirichlet_a            = .3
+        self.dirichlet_e            = .2
+        self.dataset                = []
 
-        # CPU SPECIFIC
-        # self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        # self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        # self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        #/CPU SPECIFIC
-        #Only pin memory if using a CUDA device
-        if not self.device  == torch.device('cpu'):
-            self.static_tensorCPU_P.pin_memory()
-            self.static_tensorCPU_V.pin_memory()
+        #Static tensor allocations
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.bool,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
 
     #Load a state dict for the common model
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,24).to(self.device)
 
+        #Ensure the model is on the right device, as a 16bit float
+        self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,16).half().to(self.device)
 
+        #If string, convert to state dict
         if isinstance(state_dict,str):
             if not state_dict == '':
                 self.chess_model.load_state_dict(torch.load(state_dict))
             print(f"\tloaded model '{state_dict}'")
+        
+        #If already dict, load it straight out
         elif isinstance(state_dict,OrderedDict):
             self.chess_model.load_state_dict(state_dict)
+
+        #If model, then replace chess_model outright
         elif isinstance(state_dict,torch.nn.Module):
-            self.chess_model    = state_dict
+            self.chess_model    = state_dict.half().to(self.device)
+        
+        #Alert if we get strange strange
         else:
             print(f"found something strage[{type(state_dict)}]")
             exit()
 
+        #After loading, bring back to 16bit float, eval model
+        self.chess_model            = self.chess_model.half().eval().to(self.device)
 
-        #As of not, not retracing due to memory issues??
-        self.chess_model            = self.chess_model.eval().to(self.device)#.half()
-
-        # CPU SPECIFIC
-        torch.backends.cudnn.enabled    = True
-        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float)])
+        #Perform jit tracing
+        #torch.backends.cudnn.enabled= True
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -356,18 +353,26 @@ class MCTree_Handler:
             
             #Pass thorugh to model and redistribute to trees
             with torch.no_grad():
-                model_batch                             = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).float().to(self.device) #CPU SPECIFIC
-                priors,evals                            = self.chess_model.forward(model_batch)
-                evals                                   = evals.numpy()
+                model_batch                             = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).type(torch.bool)#.half()
                 
-                for prior_probs,evaluation,tree in zip(priors,evals,self.active_trees):
+                #TEST                
+                #Copy to GPU device 
+                self.static_tensorGPU.copy_(model_batch)
+                priors,evals                            = self.chess_model.forward(self.static_tensorGPU.half())
+
+                #Bring them back
+                self.static_tensorCPU_P.copy_(priors.bool(),non_blocking=True)
+                self.static_tensorCPU_V.copy_(evals.bool())
+                torch.cuda.synchronize()
+                
+                for prior_probs,evaluation,tree in zip(self.static_tensorCPU_P.half(),self.static_tensorCPU_V.half(),self.active_trees):
                     
                     #Correct probs for legal moves 
                     revised_numpy_probs                 = numpy.take(prior_probs.numpy(),[chess_utils.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()])
                     revised_numpy_probs                 = chess_utils.normalize_numpy(revised_numpy_probs,1)
                     
                     #Add to lookup dict 
-                    self.lookup_dict[tree.curnode.key]  = (revised_numpy_probs,evaluation[0])
+                    self.lookup_dict[tree.curnode.key]  = (revised_numpy_probs,evaluation[0].numpy())
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
@@ -429,14 +434,29 @@ class MCTree_Handler:
         #
         # input(f"all ready for GPU COMPUTE")
 
+    
+    def update_game_params(self,max_game_ply:int,n_iters:int,n_parallel:int):
+        
+        self.max_game_ply       = max_game_ply
+        self.n_iters            = n_iters
+        self.n_parallel         = n_parallel
+
+        #Static tensor allocations
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.bool,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
+
+        self.active_trees           = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
+
 
 
 #DEBUG puporses
 if __name__ == '__main__':
-    t0 = time.time()
-    manager                 = MCTree_Handler(8,max_game_ply=200,n_iters=200)
-    data                    = manager.collect_data(n_exps=512)
 
-    print(f"collected {len(data)} - {(time.time()-t0)/len(data):.4f}s/move")
+    t0 = time.time()
+    manager                 = MCTree_Handler(1,max_game_ply=10,n_iters=200)
+    manager.load_dict(manager.chess_model.state_dict())
+    data                    = manager.collect_data(n_exps=4096)
+
 
 

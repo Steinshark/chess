@@ -78,7 +78,7 @@ class MCTree:
     #                   - a string specifying a file containing a state_dict
     #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel2().to(self.device)
+        self.chess_model            = model.ChessModel().to(self.device)
 
 
         if isinstance(state_dict,str):
@@ -116,7 +116,7 @@ class MCTree:
         if initial and self.root.children:
             dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
             for i,child in enumerate(self.root.children):
-                child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+                child.prior_p    = (1-self.dirichlet_e)*child.prior_p + dirichlet[i]*self.dirichlet_e
                 child.pre_compute()
             add_after       = False
         elif initial and not self.root.children:
@@ -147,7 +147,7 @@ class MCTree:
         if add_after:
             dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
             for i,child in enumerate(self.root.children):
-                child.init_p    = (1-self.dirichlet_e)*child.init_p + dirichlet[i]*self.dirichlet_e
+                child.prior_p   = (1-self.dirichlet_e)*child.prior_p + dirichlet[i]*self.dirichlet_e
                 child.pre_compute()
 
         #Update score for all nodes of this position
