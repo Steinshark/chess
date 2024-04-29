@@ -261,14 +261,15 @@ class Server(Thread):
         #Model items 
         self.chess_model                            = ChessModel(19,16).eval().cpu().float()
         self.model_state                            = self.chess_model.state_dict()
+        #self.model_state                            = torch.load("generations/gen_1.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_params                            = {"ply":120,"n_iters":500,"n_exp":2048,"n_parallel":16}
+        self.game_params                            = {"ply":160,"n_iters":250,"n_exp":2048,"n_parallel":16}
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 65536
+        self.train_every                            = 16384
         self.exp_counter                            = 0
         self.bs                                     = 512        
         self.lr                                     = .0002
@@ -366,7 +367,8 @@ class Server(Thread):
     #Blocks until all clients have finished their game and 
     #   the client_managers have passed them back to the server
     def sync_all_clients(self):
-
+        
+        print(f"\n\t{Color.green}Syncing Clients{Color.end}\n")
         #Lock server 
         self.lock                                   = True 
         found_running_game                          = True 

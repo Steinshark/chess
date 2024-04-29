@@ -12,6 +12,7 @@ import torch
 import numpy
 import chess_utils
 from collections import OrderedDict
+from memory_profiler import profile
 
 
 
@@ -133,7 +134,9 @@ class MCTree:
 
         node                            = self.curnode
         #Get pre-computed values
-        revised_probs,evaluation        = self.lookup_dict[node.key]
+        revised_probs,evaluation,count  = self.lookup_dict[node.key]
+        #Increment visit count
+        self.lookup_dict[node.key][-1]  += 1
 
         node.children                   = [Node(move,node,revised_probs[i],node.depth+1,not self.board.turn) for i,move in enumerate(self.board.generate_legal_moves())]
         
@@ -207,6 +210,7 @@ class MCTree:
             self.game_datapoints    = [(item[0],item[1],self.game_result,item[3]) for item in self.game_datapoints]
             self.end_time           = time.time()
             self.run_time           = self.end_time - self.start_time
+            del self.root
 
         
         else:
@@ -251,9 +255,9 @@ class MCTree:
     #Remove the memory that was allocated on the CPU, GPU
     def cleanup(self):
 
-        del self.static_tensorCPU_P
-        del self.static_tensorCPU_V
-        del self.static_tensorCPU_V
+        del self.common_nodes
+        del self.game_datapoints
+        
 
 
     #Applys dirichlet noise to a root, presuming all children have been 
@@ -269,6 +273,8 @@ class MCTree:
             child.pre_compute()
         
         return
+
+
 
 
 #Creates an instance of a Monte-Carlo style Tree
@@ -306,6 +312,7 @@ class MCTree_Handler:
         self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.bool,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
+        self.stop_sig               = False
 
     #Load a state dict for the common model
     def load_dict(self,state_dict):
@@ -342,10 +349,11 @@ class MCTree_Handler:
 
 
     #Performs an algorithm iteration filling the gpu to its batchsize
+    #@profile
     def collect_data(self,n_exps=32_768):
 
         #Gather n_exps
-        while len(self.dataset) < n_exps:
+        while len(self.dataset) < n_exps and not self.stop_sig:
             
             #Get all trees to the point that they require 
             #   a GPU eval
@@ -365,14 +373,16 @@ class MCTree_Handler:
                 self.static_tensorCPU_V.copy_(evals.bool())
                 torch.cuda.synchronize()
                 
-                for prior_probs,evaluation,tree in zip(self.static_tensorCPU_P.half(),self.static_tensorCPU_V.half(),self.active_trees):
+                #Precompute tree moves 
+                tree_moves                              = [[chess_utils.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()] for tree in self.active_trees]
+                for prior_probs,evaluation,tree,moves in zip(self.static_tensorCPU_P.half(),self.static_tensorCPU_V.half(),self.active_trees,tree_moves):
                     
                     #Correct probs for legal moves 
-                    revised_numpy_probs                 = numpy.take(prior_probs.numpy(),[chess_utils.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()])
+                    revised_numpy_probs                 = numpy.take(prior_probs.numpy(),moves)
                     revised_numpy_probs                 = chess_utils.normalize_numpy(revised_numpy_probs,1)
                     
                     #Add to lookup dict 
-                    self.lookup_dict[tree.curnode.key]  = (revised_numpy_probs,evaluation[0].numpy())
+                    self.lookup_dict[tree.curnode.key]  = [revised_numpy_probs,evaluation[0].numpy(),0]
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
@@ -396,8 +406,16 @@ class MCTree_Handler:
 
             #replace tree inplace 
             new_tree                = MCTree(tree.id,self.max_game_ply,self.n_iters,self.lookup_dict,self.device)
+            
+            #clean up the old tree
+            self.active_trees[i].cleanup()
+
+            #Place in new tree
             self.active_trees[i]    =    new_tree
             self.active_trees[i].perform_nongpu_iter()
+
+            #Clean up the lookup dict 
+            self.clean_lookup_dict()
 
         #Tree will start another search
         else:
@@ -449,14 +467,35 @@ class MCTree_Handler:
         self.active_trees           = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
 
 
+    #Clean the lookup dictionary for all that werent visited at least twice
+    def clean_lookup_dict(self):
+        delnodes                    = [] 
+        for key in self.lookup_dict:
+            if self.lookup_dict[key][-1] < 2:
+                delnodes.append(key)
+        
+        for badkey in delnodes:
+            del self.lookup_dict[badkey]
+        
+
+    #Close up shop
+    def close(self):
+        for tree in self.active_trees:
+            tree.cleanup()
+        
+        del self.static_tensorGPU
+        del self.static_tensorCPU_P
+        del self.static_tensorCPU_V
+        
+        return
 
 #DEBUG puporses
 if __name__ == '__main__':
 
     t0 = time.time()
-    manager                 = MCTree_Handler(1,max_game_ply=10,n_iters=200)
+    manager                 = MCTree_Handler(1,max_game_ply=50,n_iters=100)
     manager.load_dict(manager.chess_model.state_dict())
-    data                    = manager.collect_data(n_exps=4096)
+    data                    = manager.collect_data(n_exps=25)
 
 
 

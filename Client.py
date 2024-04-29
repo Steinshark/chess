@@ -190,5 +190,6 @@ class Client(Thread):
     def shutdown(self):
         print(f"Closing socket")
         self.running = False
+        self.mctree_handler.stop_sig     = True
         self.client_socket.close()
         print(f"joined and exiting")
