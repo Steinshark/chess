@@ -100,9 +100,8 @@ class Client(Thread):
 
 
         #Check model state works
-        self.current_model          = ChessModel(19,16).cpu()
+        self.current_model          = ChessModel(19,16).half().cpu()
         self.current_model.load_state_dict(self.model_state)
-        self.current_model.float()
 
         self.client_socket.send("done".encode())
 

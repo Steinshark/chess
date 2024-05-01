@@ -268,7 +268,7 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(19,16).eval().cpu().float()
+        self.chess_model                            = ChessModel(19,16).eval().cpu().half()
         self.model_state                            = self.chess_model.state_dict()
         #self.model_state                            = torch.load("generations/gen_1.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -280,10 +280,10 @@ class Server(Thread):
         self.data_pool                              = [] 
         self.train_every                            = 32768
         self.exp_counter                            = 0
-        self.bs                                     = 512        
-        self.lr                                     = .0001
+        self.bs                                     = 1024
+        self.lr                                     = .0002
         self.wd                                     = 0
-        self.betas                                  = (.5,.999)
+        self.betas                                  = (.5,.9)
         self.n_epochs                               = 1 
         self.train_step                             = 0 
         self.lr_mult                                = 1
@@ -521,7 +521,7 @@ class Server(Thread):
             training_dataset                            = trainer.TrainerExpDataset(training_batch)
 
             #Train model on data
-            self.chess_model.float().train().to(self.device)
+            self.chess_model.train().to(self.device)
             trainer.train_model(self.chess_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas)
 
             #Check stockfish baseline 
