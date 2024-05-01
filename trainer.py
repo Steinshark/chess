@@ -187,6 +187,9 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             #Backward
             model_loss.backward()
 
+            #Clip
+            torch.nn.utils.clip_grad_norm_(chess_model.parameters(),1)
+
             #Optim
             optimizer.step()
 

@@ -52,7 +52,6 @@ class Client(Thread):
             print(f"\t\t{Color.green}executed game{Color.end}")
 
 
-
     #Gets 1 model's parameters from 
     #   the client_manager
     def recieve_model_params(self):
@@ -108,7 +107,6 @@ class Client(Thread):
         self.client_socket.send("done".encode())
 
 
-
     #Runs a game based on the type of 
     #   recieved by the client_manager
     def execute_game(self):
@@ -140,6 +138,74 @@ class Client(Thread):
         torch.cuda.empty_cache()
 
 
+    #Defines the protocol for sending bytes (of any length)
+    def send_bytes(self,bytes_message:bytes) -> None:
+
+        #Confirm with the recipient that were sending them data
+        self.client_socket.send('sendbytes'.encode())
+        confirmation            = self.client_socket.recv(32).decode()
+        if not confirmation == 'ready':
+            print(f"recipient failed confirmation, sent: '{confirmation}'")
+            exit()
+        
+        #Confirm with recipient the message to be sent 
+        bytes_len               = len(bytes_message)
+        self.client_socket.send(str(bytes_len).encode())
+        confirmation            = int(self.client_socket.recv(32).decode())
+        if not confirmation == bytes_len:
+            print(f"recipient failed length check, sent: '{confirmation}' != {bytes_len}")
+            exit()
+        
+        #Send data 
+        window                  = 0 
+        while window < bytes_len:
+
+            data_packet         = bytes_message[window:window+self.pack_len]
+            self.client_socket.send(data_packet)
+
+            window              += self.pack_len
+        
+        #Confirm with the recipient that we sent the data
+        time.sleep(.1)
+        self.client_socket.send('sentbytes'.encode())
+        confirmation            = self.client_socket.recv(32).decode()
+        if not confirmation == 'recieved':
+            print(f"recipient failed receipt, sent: '{confirmation}'")
+            exit()
+        
+        return
+
+
+    #Defines the protocol for receiving bytes (of any length)
+    def recieve_bytes(self) -> bytes:
+
+        #Confirm with sender that they're sending bytes 
+        send_intent             = self.client_socket.recv(32).decode()
+        if not send_intent == 'sendbytes':
+            print(f"unexpected message from sender: '{send_intent}'")
+            exit()
+        self.client_socket.send('ready'.encode())
+
+        #Get and confirm message length
+        bytes_len               = int(self.client_socket.recv(32).decode())
+        self.client_socket.send(str(bytes_len).encode())
+
+        #Download bytes
+        bytes_message           = bytes() 
+        while len(bytes_message) < bytes_len:
+
+            data_packet         = self.client_socket.recv(self.pack_len)
+            bytes_message       += data_packet
+        
+        #Recieve confirmation from sender 
+        confirmation            = self.client_socket.recv(32).decode()
+        if not confirmation == 'sentbytes':
+            print(f"Expected end of transmission, got '{confirmation}'")
+            exit()
+        
+        return bytes_message
+
+
     #Uploads data from the client to the client_manager
     #   handles both 'Train' and 'Test' modes
     def upload_data(self,data):
@@ -149,38 +215,9 @@ class Client(Thread):
             #print(f"detected not running")
             return
 
+        bytes_data                      = json.dumps(data).encode()
 
-        self.client_socket.send('data send'.encode())
-
-        #Send exps
-        for packet_i,exp in enumerate(data):
-
-            #Wait for "Ready" from server
-            confirm         = self.client_socket.recv(32).decode()
-            if not confirm == "Ready":
-                print(f"{Color.red}didnt get Send, got {confirm}{Color.end}")
-                break
-
-            #separate fen,move_data,and outcome and 
-            #   json convert to strings to send over network
-            fen:str         = exp[0]
-            move_stats:str  = json.dumps(exp[1])
-            outcome:str     = str(exp[2])
-            q_score:str     = str(exp[3])
-
-            #Combine strings 
-            data_packet     = (fen,move_stats,outcome,q_score)
-            data_packet     = json.dumps(data_packet)
-
-            #encode to bytes and send to server 
-            self.client_socket.send(data_packet.encode())
-
-
-        #Receive the last "Ready"
-        confirm         = self.client_socket.recv(32).decode()
-
-        #Let server know thats it
-        self.client_socket.send("End".encode())
+        self.send_bytes(bytes_data)
 
         #Reset 
         self.mctree_handler.dataset     = []

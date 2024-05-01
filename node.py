@@ -86,6 +86,8 @@ class Node:
                 best_score      = score
                 top_node        = curnode
 
+        if top_node is None:
+            input([(node,node.get_score()) for node in self.children])
         return top_node
 
 

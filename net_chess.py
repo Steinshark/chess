@@ -171,6 +171,39 @@ class Client_Manager(Thread):
         #Get confirmation from client "Recieved"
         self.client_socket.recv(32)
 
+        #Defines the protocol for receiving bytes (of any length)
+    
+    
+    def recieve_bytes(self) -> bytes:
+
+        #Confirm with sender that they're sending bytes 
+        send_intent             = self.client_socket.recv(32).decode()
+        if not send_intent == 'sendbytes':
+            print(f"unexpected message from sender: '{send_intent}'")
+            exit()
+        self.client_socket.send('ready'.encode())
+
+        #Get and confirm message length
+        bytes_len               = int(self.client_socket.recv(32).decode())
+        self.client_socket.send(str(bytes_len).encode())
+
+        #Download bytes
+        bytes_message           = bytes() 
+        while len(bytes_message) < bytes_len:
+
+            data_packet         = self.client_socket.recv(self.pack_len)
+            bytes_message       += data_packet
+        
+        #Recieve confirmation from sender 
+        confirmation            = self.client_socket.recv(32).decode()
+        if not confirmation == 'sentbytes':
+            print(f"Expected end of transmission, got '{confirmation}'")
+            exit()
+        self.client_socket.send('recieved'.encode())
+        
+        return bytes_message
+
+
 
     def send_game_params(self,parameters:dict):
                
@@ -181,37 +214,13 @@ class Client_Manager(Thread):
 
     def recieve_client_result(self):
 
-        #Check what client is saying
-        send_confirmation                   = self.client_socket.recv(32).decode()
+        bytes_message                       = self.recieve_bytes()
 
-        #If 'Result', then only outcome is sent
-        if send_confirmation == 'data send':
-            #Recieve data until "End" signal
-            while True:
-                
-                #Send 'Ready' to recieve and get next client response
-                self.client_socket.send("Ready".encode())
-                client_response     = self.client_socket.recv(32768).decode()
+        experience_set                      = json.loads(bytes_message.decode())
+        for exp in experience_set:
+            self.queue.put(exp)
 
-                #Break if recieve 'End'
-                if client_response  == "End":
-                    break 
 
-                #Process data if else
-                else:
-                    #Add experience to the experience queue to transfer
-                    data_packet     = json.loads(client_response)
-                    #Re-convert             FEN                   MOVE_DISTR                      OUTCOME
-                    client_response = (data_packet[0],json.loads(data_packet[1]),float(data_packet[2]),float(data_packet[3]))
-                    
-                    #Place in the data queue for the Server thread to fetch 
-                    self.queue.put(client_response)
-
-        
-        #if 'Experience', then will recieve a list of experiences
-        else:
-            print(f"client send strange answer: '{send_confirmation}'")
-    
 
     def recieve_test_game(self,game_packet):
         self.p1             = game_packet[0]
@@ -265,14 +274,14 @@ class Server(Thread):
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_params                            = {"ply":160,"n_iters":250,"n_exp":2048,"n_parallel":16}
+        self.game_params                            = {"ply":120,"n_iters":400,"n_exp":2048,"n_parallel":8}
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 16384
+        self.train_every                            = 32768
         self.exp_counter                            = 0
         self.bs                                     = 512        
-        self.lr                                     = .0002
+        self.lr                                     = .0001
         self.wd                                     = 0
         self.betas                                  = (.5,.999)
         self.n_epochs                               = 1 
@@ -368,7 +377,7 @@ class Server(Thread):
     #   the client_managers have passed them back to the server
     def sync_all_clients(self):
         
-        print(f"\n\t{Color.green}Syncing Clients{Color.end}\n")
+        print(f"\n\t{Color.green}Syncing Clients {[cm.id for cm in self.client_managers]}{Color.end}\n")
         #Lock server 
         self.lock                                   = True 
         found_running_game                          = True 
@@ -522,14 +531,8 @@ class Server(Thread):
             #Step lr 
             self.lr                                     *= self.lr_mult
 
-            #Place model back in eval mode and get state dict
-            
-            # CPU ONLY TEST 
-            #self.chess_model.half().eval().cpu()
+            #Place model back on cpu, in eval mode, and get state dict
             self.chess_model.eval().cpu()
-            #/CPU ONLT TEST 
-
-
             self.model_state                            = self.chess_model.state_dict()
 
             #Save models 

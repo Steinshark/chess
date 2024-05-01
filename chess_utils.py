@@ -22,6 +22,7 @@ def build_engine():
     engine              = engine.SimpleEngine.popen_uci("C:/gitrepos/stockfish/sf16.exe")
     return engine
 
+
 def fen_processor(fen:str):
     for i in range(1,9):
         fen 	= fen.replace(str(i),"e"*i)
@@ -85,7 +86,7 @@ def fen_to_tensor(fen):
     return torch.from_numpy(board_tensor)
 
 
-def batched_fen_to_tensor(fenlist):
+def batched_fen_to_tensor(fenlist) -> torch.tensor:
 
     #Encoding will be an bsx15x8x8 tensor 
     #	7 for white, 7 for black 
@@ -117,7 +118,6 @@ def normalize_numpy(X,temperature=1):
     X           = numpy.power(X,1/temperature)
 
     return X / numpy.sum(X)
-
 
 
 def temp_scheduler(ply:int):
@@ -156,6 +156,19 @@ def clean_eval(evaluation):
 
 
 if __name__ == "__main__":
-    from matplotlib import pyplot 
-    pyplot.plot([temp_scheduler(x) for x in range(100)])
-    pyplot.show()
+    ex      = [1,2,3,4]
+
+    for mylist in [[1,2,3,4],[122,51,1,23],[65,65,65,65]]:
+
+        ex2     = normalize(mylist)
+        ex2_sum = sum(ex2)
+        print("ex:",mylist," ex2:",ex2_sum)
+
+
+    # from matplotlib import pyplot as plt 
+    # norm_vect   = normalize(ex,temperature=1)
+    # plt.bar([1,3,5,7],height=norm_vect)
+    # norm_vect   = normalize(ex,temperature=.25)
+    # plt.bar([2,4,6,8],height=norm_vect)
+    # plt.show()
+    # print(norm_vect)
