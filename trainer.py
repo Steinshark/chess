@@ -170,7 +170,7 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             #Transform data to useful things
             board_repr              = chess_utils.batched_fen_to_tensor(fens).to(DEVICE).float()
             z_vals                  = z.unsqueeze(dim=1).float().to(DEVICE)
-            distr                   = distr.to(DEVICE)
+            distr                   = distr.float().to(DEVICE)
 
             #Get model out
             probs,evals             = chess_model.forward(board_repr)

@@ -453,7 +453,7 @@ class ChessApp:
             if count > top_count:
                 top_move    = move 
                 top_count   = count
-
+        print(move_counts)
         self.push_move_to_board(top_move)
 
 

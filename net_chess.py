@@ -87,7 +87,6 @@ class Client_Manager(Thread):
         #CLIENT PLAYS GAME 
 
         #Receive training data from game 
-        
         self.recieve_client_result()
 
 
@@ -103,8 +102,7 @@ class Client_Manager(Thread):
                 #Execute game and get results
                 self.run_training_game()
                 
-                self.in_game                = False
-
+                self.in_game            = False
                 while self.lock:
                     time.sleep(1)
                             
@@ -116,6 +114,7 @@ class Client_Manager(Thread):
             self.shutdown()
         except OSError:
             print(f"\n\t{Color.red}Lost communication with client{Color.end}")
+            self.shutdown()
             return False
 
     
@@ -193,16 +192,18 @@ class Client_Manager(Thread):
 
             data_packet         = self.client_socket.recv(self.pack_len)
             bytes_message       += data_packet
-        
+
+        #Let em know were done
+        self.client_socket.send('recieved'.encode())
+
         #Recieve confirmation from sender 
         confirmation            = self.client_socket.recv(32).decode()
         if not confirmation == 'sentbytes':
             print(f"Expected end of transmission, got '{confirmation}'")
             exit()
-        self.client_socket.send('recieved'.encode())
+
         
         return bytes_message
-
 
 
     def send_game_params(self,parameters:dict):
@@ -217,10 +218,10 @@ class Client_Manager(Thread):
         bytes_message                       = self.recieve_bytes()
 
         experience_set                      = json.loads(bytes_message.decode())
+
         for exp in experience_set:
-            self.queue.put(exp)
-
-
+            self.queue.put_nowait(exp)
+        
 
     def recieve_test_game(self,game_packet):
         self.p1             = game_packet[0]
@@ -268,20 +269,20 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(19,16).eval().cpu().half()
+        self.chess_model                            = ChessModel(19,16).eval().cpu().float()
         self.model_state                            = self.chess_model.state_dict()
-        #self.model_state                            = torch.load("generations/gen_1.dict")
+        self.model_state                            = torch.load("generations/gen_16.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_params                            = {"ply":120,"n_iters":400,"n_exp":2048,"n_parallel":8}
+        self.game_params                            = {"ply":160,"n_iters":500,"n_exp":4096,"n_parallel":8}
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 32768
+        self.train_every                            = 65536
         self.exp_counter                            = 0
         self.bs                                     = 1024
-        self.lr                                     = .0002
+        self.lr                                     = .0001
         self.wd                                     = 0
         self.betas                                  = (.5,.9)
         self.n_epochs                               = 1 
@@ -290,7 +291,7 @@ class Server(Thread):
         self.gen                                    = 0
 
         #Telemtry vars
-        self.update_iter                            = 30
+        self.update_iter                            = 60
         self.next_update_t                          = time.time() + self.update_iter
 
 
@@ -500,6 +501,7 @@ class Server(Thread):
             self.sync_all_clients()
             
             #Snatch experiences from games after sync
+            self.exp_counter                            = 0 
             for client in self.client_managers:
                 while not client.queue.empty():
                     self.data_pool.append(client.queue.get())
@@ -508,7 +510,6 @@ class Server(Thread):
             #Update window and reset train counter
             self.apply_window()
             self.train_step                             += 1
-            self.exp_counter                            = 0 
 
             #Print stats
             print(f"\n\n\t{Color.blue}Training Step {Color.tan}{self.train_step}:{Color.end}")
@@ -593,11 +594,11 @@ class Server(Thread):
 
         #Increase to 5
         elif self.train_step in [6,7]:
-            self.data_pool                          = self.data_pool[-self.train_every*5:]
+            self.data_pool                          = self.data_pool[-self.train_every*4:]
         
         #All further gens have 8
         else:
-            self.data_pool                          = self.data_pool[-self.train_every*8:]
+            self.data_pool                          = self.data_pool[-self.train_every*5:]
 
 
     #Give a game_packet to a client manager for it's client 

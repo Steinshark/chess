@@ -13,7 +13,7 @@ import numpy
 import chess_utils
 from collections import OrderedDict
 from memory_profiler import profile
-
+import random
 
 
 #TODO 
@@ -149,23 +149,24 @@ class MCTree:
     #Pick the top move.
     #   argument 'greedy' determines if it will be based on max move count, 
     #   or sampling from the distribution
-    def get_top_move(self,greedy=True):
+    def get_top_move(self,greedy=False):
 
-        top_move                    = None 
-        top_visits                  = 0 
+        if greedy:
+            top_move                    = None 
+            top_visits                  = 0 
 
-        for move,visit_count in [(child.move,child.n_visits) for child in self.root.children]:
-            if visit_count > top_visits:
-                top_move            = move 
-                top_visits          = visit_count
+            for move,visit_count in [(child.move,child.n_visits) for child in self.root.children]:
+                if visit_count > top_visits:
+                    top_move            = move 
+                    top_visits          = visit_count
         
-        if self.id == 0 and self.board.ply() == 0 and False:
-            print(f"id {self.id}-> {top_move}")
-            print(f"id {self.id}-> {[f'{node.n_visits:.3f}' for node in self.root.children]}")
+        else:
+            top_move                    = random.choices([child.move for child in self.root.children],weights=[child.n_visits for child in self.root.children],k=1)[0]
+        
         return top_move
     
 
-    #Applys the given move to the root
+    #Applies the given move to the root
     #   and descends to corresponding node.
     #   Keeps prior calculations down this line
     #   Dirichelt noise is added here because the next 
@@ -180,9 +181,8 @@ class MCTree:
         datapoint                   = (board_fen,post_probs,position_eval,q_value)
         self.game_datapoints.append(datapoint)
 
-        #Get move from probabililtes 
-        #print(f"{board_fen}\nroot:{self.root.move}")
-        move                        = self.get_top_move(greedy=True)
+        #sample fomr distribution if ply < 20
+        move                        = self.get_top_move(greedy=self.board.ply() > 20)
 
         #Push move to board
         self.board.push(move)
@@ -286,7 +286,7 @@ class MCTree_Handler:
 
         #GPU related variables
         self.device                 = device
-        self.chess_model            = model.ChessModel(19,16).half().to(self.device).eval()
+        self.chess_model            = model.ChessModel(19,16).float().to(self.device).eval()
 
         #Training related variables
         self.dirichlet_a            = .3
@@ -294,9 +294,9 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.stop_sig               = False
 
@@ -304,7 +304,7 @@ class MCTree_Handler:
     def load_dict(self,state_dict):
 
         #Ensure the model is on the right device, as a 16bit float
-        self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,16).half().to(self.device)
+        self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,16).float().to(self.device)
 
         #If string, convert to state dict
         if isinstance(state_dict,str):
@@ -318,7 +318,7 @@ class MCTree_Handler:
 
         #If model, then replace chess_model outright
         elif isinstance(state_dict,torch.nn.Module):
-            self.chess_model    = state_dict.half().to(self.device)
+            self.chess_model    = state_dict.float().to(self.device)
         
         #Alert if we get strange strange
         else:
@@ -326,11 +326,11 @@ class MCTree_Handler:
             exit()
 
         #After loading, bring back to 16bit float, eval model
-        self.chess_model            = self.chess_model.half().eval().to(self.device)
+        self.chess_model            = self.chess_model.float().eval().to(self.device)
 
         #Perform jit tracing
         #torch.backends.cudnn.enabled= True
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float32)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -347,7 +347,7 @@ class MCTree_Handler:
             
             #Pass thorugh to model and redistribute to trees
             with torch.no_grad():
-                model_batch:torch.tensor                = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).half()
+                model_batch:torch.tensor                = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).float()
                 
                 #TEST                
                 #Copy to GPU device 
@@ -446,9 +446,9 @@ class MCTree_Handler:
         self.n_parallel         = n_parallel
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.active_trees           = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
 

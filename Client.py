@@ -100,7 +100,7 @@ class Client(Thread):
 
 
         #Check model state works
-        self.current_model          = ChessModel(19,16).half().cpu()
+        self.current_model          = ChessModel(19,16).float().cpu()
         self.current_model.load_state_dict(self.model_state)
 
         self.client_socket.send("done".encode())
@@ -164,10 +164,11 @@ class Client(Thread):
 
             window              += self.pack_len
         
-        #Confirm with the recipient that we sent the data
-        time.sleep(.1)
-        self.client_socket.send('sentbytes'.encode())
+        #Confirm with they finished up
         confirmation            = self.client_socket.recv(32).decode()
+        
+        #Send confirmation back
+        self.client_socket.send('sentbytes'.encode())
         if not confirmation == 'recieved':
             print(f"recipient failed receipt, sent: '{confirmation}'")
             exit()

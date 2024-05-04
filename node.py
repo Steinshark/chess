@@ -15,7 +15,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 3
+    c           = 4
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,
@@ -88,6 +88,7 @@ class Node:
 
         if top_node is None:
             input([(node,node.get_score()) for node in self.children])
+
         return top_node
 
 
@@ -119,11 +120,7 @@ class Node:
             with torch.no_grad():   #no grad! (obviously)
 
                 #Representation as a (bs,19,8,8) tensor
-
-                # CPU SPECIFIC
-                #board_repr              = chess_utils.batched_fen_to_tensor([board_key]).half()
                 board_repr              = chess_utils.batched_fen_to_tensor([board_key]).float()
-                #/CPU SPECIFIC
 
                 #Perform copy to static memory in GPU (large speedup if using GPU)
                 static_gpu.copy_(board_repr)
@@ -134,9 +131,6 @@ class Node:
                 #Bring it all over to the cpu (Also large speedup due to copy to static variables -no need to reallocate)
                 static_cpu_p.copy_(probs[0],non_blocking=True)
                 static_cpu_v.copy_(eval[0])
-
-                #TODO
-                # WRITE AND BENCHMARK GPU-SIDE REVISION
 
                 #Convert to numpy and renormalize
                 revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[chess_utils.MOVE_TO_I[move] for move in moves])
@@ -164,6 +158,8 @@ class Node:
 
         #Check end state of node. either return actual outcome or perform computation
         if board.is_game_over() or board.ply() > max_depth:
+            if board.is_fivefold_repetition():
+                print(f"repetition draw")
             return self.RESULTS[board.result()]
 
         #Run "rollout"
