@@ -181,9 +181,9 @@ class MCTree:
             top_visits                  = 0 
 
             for child in self.root.children:
-                if child.visit_count > top_visits:
+                if child.n_visits > top_visits:
                     top_move            = child.move 
-                    top_visits          = child.visit_count
+                    top_visits          = child.n_visits
         
         else:
             top_move                    = random.choices([child.move for child in self.root.children],weights=[child.n_visits for child in self.root.children],k=1)[0]
@@ -207,7 +207,7 @@ class MCTree:
         self.game_datapoints.append(datapoint)
 
         #sample fomr distribution if ply < 20
-        move                        = self.get_top_move(greedy=self.board.ply() > 20)
+        move                        = self.get_top_move(greedy=self.board.ply() > 10)
 
         #Push move to board
         self.board.push(move)

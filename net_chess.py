@@ -271,7 +271,7 @@ class Server(Thread):
         #Model items 
         self.chess_model                            = ChessModel(19,16).eval().cpu().float()
         self.model_state                            = self.chess_model.state_dict()
-        self.model_state                            = torch.load("generations/gen_16.dict")
+        #self.model_state                            = torch.load("generations/gen_16.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
