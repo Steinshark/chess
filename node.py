@@ -86,8 +86,8 @@ class Node:
                 best_score      = score
                 top_node        = curnode
 
-        if top_node is None:
-            input([(node,node.get_score()) for node in self.children])
+        # if top_node is None:
+        #     input([(node,node.get_score()) for node in self.children])
 
         return top_node
 
@@ -99,7 +99,7 @@ class Node:
 
     #Return just the q_score (for training)
     def get_q_score(self):
-        return (self.cumulative_score / (self.n_visits+1)).item()
+        return self.cumulative_score / (self.n_visits+1)
 
 
     #Used for debugging to prevent gigantic floats
@@ -158,8 +158,6 @@ class Node:
 
         #Check end state of node. either return actual outcome or perform computation
         if board.is_game_over() or board.ply() > max_depth:
-            if board.is_fivefold_repetition():
-                print(f"repetition draw")
             return self.RESULTS[board.result()]
 
         #Run "rollout"

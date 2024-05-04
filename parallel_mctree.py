@@ -26,7 +26,7 @@ class MCTree:
 
 
         #Create game board
-        self.board              = chess.Board()
+        self.board              = chess.Board(fen='1nbqkb1r/1rppnppp/pp2P3/8/6P1/4PQ2/PPPP3P/RNB1KBNR w KQk - 2 7')
 
         #Define the root node (the one that will be evaluatioed) and set
         #search variables
@@ -42,7 +42,7 @@ class MCTree:
 
         #Keep track of prior explored nodes
         self.lookup_dict            = lookup_dict
-        self.common_nodes           = {}
+        self.common_nodes:list[Node]= {}
         self.gpu_blocking           = False
         
         #Multithread vars 
@@ -86,12 +86,17 @@ class MCTree:
             except AssertionError:
                 print(f"id {self.id} {self.board.fen()} failed to push {curnode.move} after {mk}")
                 exit()
-
+        
         #Node key
         curnode.key                     = " ".join(self.board.fen().split(" ")[:4])
 
+        #Check if gameover node and update node in tree 
+        if self.board.is_game_over():
+            game_result                 = Node.RESULTS[self.board.result()]
+            self.perform_endgame_expansion(curnode,game_result)
+
         #Curnode now needs to be expanded
-        if curnode.key in self.lookup_dict:
+        elif curnode.key in self.lookup_dict:
             self.curnode:Node           = curnode
             self.perform_expansion()
             self.perform_nongpu_iter()
@@ -115,12 +120,33 @@ class MCTree:
         self.pending_fen                = None
 
 
+    #Perform expansion given that the node is an endstate 
+    def perform_endgame_expansion(self,node:Node,evaluation:float):
+
+        #Check in common nodes
+        if node.key in self.common_nodes:
+            self.common_nodes[node.key].add(node)
+        else:
+            self.common_nodes[node.key] = set([node])
+
+        #Propogate value
+        for common_node in self.common_nodes[node.key]:
+                common_node.bubble_up(evaluation)
+        
+        #Unpop gameboard 
+        for _ in range(self.curdepth):
+            self.board.pop()
+
+        self.curdepth = 0
+
+
     #Perform an expansion of a leaf node
     def perform_expansion(self):
 
         node                            = self.curnode
         #Get pre-computed values
         revised_probs,evaluation,count  = self.lookup_dict[node.key]
+        #input(f"led to -> {evaluation}")
         #Increment visit count
         self.lookup_dict[node.key][-1]  += 1
 
@@ -150,19 +176,18 @@ class MCTree:
     #   argument 'greedy' determines if it will be based on max move count, 
     #   or sampling from the distribution
     def get_top_move(self,greedy=False):
-
         if greedy:
             top_move                    = None 
             top_visits                  = 0 
 
-            for move,visit_count in [(child.move,child.n_visits) for child in self.root.children]:
-                if visit_count > top_visits:
-                    top_move            = move 
-                    top_visits          = visit_count
+            for child in self.root.children:
+                if child.visit_count > top_visits:
+                    top_move            = child.move 
+                    top_visits          = child.visit_count
         
         else:
             top_move                    = random.choices([child.move for child in self.root.children],weights=[child.n_visits for child in self.root.children],k=1)[0]
-        
+
         return top_move
     
 
@@ -479,8 +504,8 @@ class MCTree_Handler:
 if __name__ == '__main__':
 
     t0 = time.time()
-    manager                 = MCTree_Handler(1,max_game_ply=50,n_iters=100)
-    manager.load_dict(manager.chess_model.state_dict())
+    manager                 = MCTree_Handler(1,max_game_ply=10,n_iters=300)
+    #manager.load_dict(manager.chess_model.state_dict())
     data                    = manager.collect_data(n_exps=25)
 
 
