@@ -89,6 +89,7 @@ class Client(Thread):
             self.model_state                    = torch.load(BytesIO(params_as_bytes))
             self.model_hash                     = md5(params_as_bytes).digest()
 
+            print(f"\t{Color.tan}downloaded {len(params_as_bytes)} bytes{Color.end}")
             #Reset mctree handler dict 
             self.mctree_handler.lookup_dict = {}
 

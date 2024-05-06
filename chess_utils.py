@@ -156,15 +156,14 @@ def clean_eval(evaluation):
 
 
 if __name__ == "__main__":
-    ex      = [1,2,3,4]
+    b = chess.Board()
+    b.push(chess.Move.from_uci("e2e4"))
+    b.push(chess.Move.from_uci("e7e5"))
 
-    for mylist in [[1,2,3,4],[122,51,1,23],[65,65,65,65]]:
-
-        ex2     = normalize(mylist)
-        ex2_sum = sum(ex2)
-        print("ex:",mylist," ex2:",ex2_sum)
+    out2 = batched_fen_to_tensor([b.fen()])
 
 
+    print(f"out2: {out2[0][16]}")
     # from matplotlib import pyplot as plt 
     # norm_vect   = normalize(ex,temperature=1)
     # plt.bar([1,3,5,7],height=norm_vect)

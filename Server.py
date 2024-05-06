@@ -182,17 +182,17 @@ class Server(Thread):
         #Model items 
         self.chess_model                            = ChessModel(17,16).eval().cpu().float()
         self.model_dict                            = self.chess_model.state_dict()
-        #self.model_state                            = torch.load("generations/gen_16.dict")
+        #self.model_state                            = torch.load("generations/gen_1.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_settings                            = {"ply":30,"n_iters":50,"n_exp":128,"n_parallel":8}
+        self.game_settings                            = {"ply":160,"n_iters":800,"n_exp":2048,"n_parallel":8}
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 65536
+        self.train_every                            = 132072
         self.exp_counter                            = 0
-        self.bs                                     = 1024
+        self.bs                                     = 2048
         self.lr                                     = .0001
         self.wd                                     = 0
         self.betas                                  = (.5,.9)
