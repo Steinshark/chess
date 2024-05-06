@@ -60,10 +60,10 @@ class MCTree:
         #   if using cpu, these are not send to GPU and not pinned
         
         # CPU SPECIFIC 
-        # self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
+        # self.static_tensorGPU       = torch.empty(size=(1,17,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
         # self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
         # self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorGPU       = torch.empty(size=(1,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float,requires_grad=False,device=self.device)
+        self.static_tensorGPU       = torch.empty(size=(1,17,8,8),dtype=torch.float,requires_grad=False,device=self.device)
         self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
         self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
         #/CPU SPECIFIC
@@ -99,8 +99,8 @@ class MCTree:
 
         # CPU SPECIFIC
         torch.backends.cudnn.enabled    = True
-        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float16)])
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float)])
+        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float16)])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
         #/CPU SPECIFIC
         

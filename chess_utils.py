@@ -37,7 +37,7 @@ def fen_processor(fen:str):
 def fen_to_tensor_lite(fen_info:list):
     position,turn,castling  = fen_info
 
-    this_board              = numpy.zeros(shape=(7+7+4+1,8,8),dtype=numpy.float32)
+    this_board              = numpy.zeros(shape=(6+6+4+1,8,8),dtype=numpy.float32)
 
     #Place pieces
     for rank_i,rank in enumerate(reversed(position)):

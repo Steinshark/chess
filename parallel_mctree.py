@@ -311,7 +311,7 @@ class MCTree_Handler:
 
         #GPU related variables
         self.device                 = device
-        self.chess_model            = model.ChessModel(19,16).float().to(self.device).eval()
+        self.chess_model            = model.ChessModel(17,16).float().to(self.device).eval()
 
         #Training related variables
         self.dirichlet_a            = .3
@@ -319,7 +319,7 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
         self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
@@ -329,7 +329,7 @@ class MCTree_Handler:
     def load_dict(self,state_dict):
 
         #Ensure the model is on the right device, as a 16bit float
-        self.chess_model            = model.ChessModel(chess_utils.TENSOR_CHANNELS,16).float().to(self.device)
+        self.chess_model            = model.ChessModel(17,16).float().to(self.device)
 
         #If string, convert to state dict
         if isinstance(state_dict,str):
@@ -355,7 +355,7 @@ class MCTree_Handler:
 
         #Perform jit tracing
         #torch.backends.cudnn.enabled= True
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,chess_utils.TENSOR_CHANNELS,8,8),device=self.device,dtype=torch.float32)])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float32)])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -471,7 +471,7 @@ class MCTree_Handler:
         self.n_parallel         = n_parallel
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,chess_utils.TENSOR_CHANNELS,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
         self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
 

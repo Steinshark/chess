@@ -10,7 +10,7 @@ import chess_utils
 class ChessModel(torch.nn.Module):
 
 
-    def __init__(self,in_ch:int=19,n_channels:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
+    def __init__(self,in_ch:int=17,n_channels:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
 
         super(ChessModel,self).__init__()
         #n_channels is set to 16 currently

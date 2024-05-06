@@ -40,7 +40,7 @@ from pprint import pp
 import torch 
 import numpy
 from Client import Client 
-from net_chess import Server
+from Server import Server
 import mctree
 
 #Network related 
@@ -58,7 +58,7 @@ sys.path.append("C:/gitrepos")
 PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [os.path.join("generations",fname) for fname in os.listdir("generations") if "gen_" in fname and ".dict" in fname]
 
-SERVER_IP               = '192.168.68.100'
+SERVER_IP               = '192.168.68.105'
 
 #A GUI program to make life easier
 class ChessApp:
@@ -480,6 +480,8 @@ class ChessApp:
             self.create_model(self.cur_file)
 
         self.create_board_img()
+    
+    
     #DEPRECATED
     def play(self):
 

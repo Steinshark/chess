@@ -383,10 +383,10 @@ if __name__ == '__main__':
 
 
     #Good model
-    model1          = model.ChessModel(19,16,act=torch.nn.ReLU).cuda()
+    model1          = model.ChessModel(17,16,act=torch.nn.ReLU).cuda()
 
     #Bad model
-    model2         = model.ChessModel(19,16,act=torch.nn.GELU).cuda()
+    model2         = model.ChessModel(17,16,act=torch.nn.GELU).cuda()
 
 
     p1,l1           = check_vs_stockfish(model1)

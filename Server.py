@@ -20,17 +20,8 @@ from copy import deepcopy
 import time 
 import os
 from hashlib import md5
-
-#Colorful display on terminal
-class Color:
-    os.system("")
-    blue    = '\033[94m'
-    tan     = '\033[93m'
-    green   = '\033[92m'
-    red     = '\033[91m'
-    bold    = '\033[1m'
-    end     = '\033[0m'    
-
+import networking
+from networking import Color
 
 #Runs on the client machine and generates training data 
 #   by playing games againts itself
@@ -39,7 +30,7 @@ class Color:
 #   to the Server 
 class Client_Manager(Thread):
 
-    def __init__(self,client_socket:socket.socket,connection:str,client_id:str,client_queue:Queue,model_params:OrderedDict,game_params,pack_len=8192):
+    def __init__(self,client_socket:socket.socket,connection:str,client_id:str,client_queue:Queue,model_dict:OrderedDict,game_settings,pack_len=8192):
         super(Client_Manager,self).__init__()
         self.client_socket          = client_socket
         self.client_address         = connection[0]
@@ -50,12 +41,10 @@ class Client_Manager(Thread):
         self.pack_len               = pack_len
 
         #Game vars 
-        self.game_params            = game_params
+        self.game_settings          = game_settings
 
         #Model vars 
-        self.top_model_params       = model_params
-        self.model1_params          = None
-        self.model2_params          = None
+        self.model_dict             = model_dict
         self.in_game                = False
         self.lock                   = False
 
@@ -66,7 +55,7 @@ class Client_Manager(Thread):
 
 
     def is_alive(self):
-        if not isinstance(self.client_address,socket.socket):
+        if not isinstance(self.client_socket,socket.socket):
             return False
         return True
     
@@ -82,7 +71,7 @@ class Client_Manager(Thread):
         self.send_model_params(self.top_model_params)
 
         #Send game parameters to play with
-        self.send_game_params(self.game_params)
+        self.send_game_params(self.game_settings)
         
         #CLIENT PLAYS GAME 
 
@@ -132,110 +121,32 @@ class Client_Manager(Thread):
         #Get hash 
         params_hash                     = md5(params_as_bytes).digest()
 
-        #PROTOCOL:
-        #   send client hash
-        #   if client already has model it will reply 'skip'
-        #       confirm skip
-        #   otherwise, it will reply 'send
-        #       send client n_bytes it will recieve 
-        #       get client confirmation of n_bytes
-        #       send packets of pack_len bytes until end 
-        
-        #   wait for Done signal
-
-
         #Check if client has model
-        self.client_socket.send(params_hash)
-        client_response                 = self.client_socket.recv(32).decode()
-
+        networking.send_bytes(self.client_socket,params_hash,self.pack_len)
+        client_response                 = networking.recieve_bytes(self.client_socket,self.pack_len).decode()
         if client_response == 'skip':
-            self.client_socket.send('skip'.encode())
+            networking.send_bytes(self.client_socket,'skip'.encode(),self.pack_len)
         
         elif client_response == 'send':
-            data_len                            = len(params_as_bytes)
-            self.client_socket.send(str(data_len).encode())
-
-            data_len_confirmation               = int(self.client_socket.recv(32).decode())
-            
-            if not data_len_confirmation == data_len:
-                print(f"client didnt recieve proper byte len, got {data_len_confirmation}")
-            window                  = 0 
-            while window < data_len:
-                
-                #Prep and send data packet
-                data_packet         = params_as_bytes[window:window+self.pack_len]
-                self.client_socket.send(data_packet)
-                window              += self.pack_len
-
-        #Get confirmation from client "Recieved"
-        self.client_socket.recv(32)
-
-        #Defines the protocol for receiving bytes (of any length)
+            networking.send_bytes(self.client_socket,params_as_bytes,self.pack_len)
     
-    
-    def recieve_bytes(self) -> bytes:
-
-        #Confirm with sender that they're sending bytes 
-        send_intent             = self.client_socket.recv(32).decode()
-        if not send_intent == 'sendbytes':
-            print(f"unexpected message from sender: '{send_intent}'")
-            exit()
-        self.client_socket.send('ready'.encode())
-
-        #Get and confirm message length
-        bytes_len               = int(self.client_socket.recv(32).decode())
-        self.client_socket.send(str(bytes_len).encode())
-
-        #Download bytes
-        bytes_message           = bytes() 
-        while len(bytes_message) < bytes_len:
-
-            data_packet         = self.client_socket.recv(self.pack_len)
-            bytes_message       += data_packet
-
-        #Let em know were done
-        self.client_socket.send('recieved'.encode())
-
-        #Recieve confirmation from sender 
-        confirmation            = self.client_socket.recv(32).decode()
-        if not confirmation == 'sentbytes':
-            print(f"Expected end of transmission, got '{confirmation}'")
-            exit()
-
-        
-        return bytes_message
-
 
     def send_game_params(self,parameters:dict):
                
         #Send game parameters to client 
         data_packet                 = json.dumps(parameters)
-        self.client_socket.send(data_packet.encode())
+        networking.send_bytes(self.client_socket,data_packet.encode(),self.pack_len)
 
 
     def recieve_client_result(self):
 
-        bytes_message                       = self.recieve_bytes()
+        bytes_message                       = networking.recieve_bytes(self.client_socket,self.pack_len)
 
         experience_set                      = json.loads(bytes_message.decode())
 
         for exp in experience_set:
             self.queue.put_nowait(exp)
         
-
-    def recieve_test_game(self,game_packet):
-        self.p1             = game_packet[0]
-        self.p2             = game_packet[1]
-
-        self.model1_params  = game_packet[2]
-        self.model2_params  = game_packet[3]
-        self.game_uid       = game_packet[4]
-
-
-        #unlock and go for it 
-        self.unlock()
-        self.in_game        = True
-
 
     def set_lock(self):
         self.lock   = True 
@@ -269,13 +180,13 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(19,16).eval().cpu().float()
-        self.model_state                            = self.chess_model.state_dict()
+        self.chess_model                            = ChessModel(17,16).eval().cpu().float()
+        self.model_dict                            = self.chess_model.state_dict()
         #self.model_state                            = torch.load("generations/gen_16.dict")
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_params                            = {"ply":160,"n_iters":500,"n_exp":4096,"n_parallel":8}
+        self.game_settings                            = {"ply":30,"n_iters":50,"n_exp":128,"n_parallel":8}
 
         #Training vars
         self.data_pool                              = [] 
@@ -366,7 +277,7 @@ class Server(Thread):
                 hitlist.append(client_index)
             else:
                 #Pass-on most recent model 
-                client.recieve_model(self.model_state)
+                client.recieve_model(self.model_dict)
                 
         for client_index in hitlist:
             self.client_managers.pop(client_index)
@@ -416,31 +327,6 @@ class Server(Thread):
         p_loss,v_loss                           = trainer.check_vs_stockfish(chess_model)
         print(f"\t\t{Color.blue}PRE_TRAIN:\n\t\tp_loss:{Color.tan}{p_loss:.4f}{Color.blue}\t\tv_loss:{Color.tan}{v_loss:.4f}\n\n")
         
-    
-    #Trains the current model
-    def train_current_model(self,chess_model:ChessModel):
-        
-        print(f"\t\t{Color.blue}TRAINING:")
-
-        #Ensure proper state 
-        chess_model.cuda().train()  
-
-        #Train loop
-        for epoch_num in range(self.n_epochs):
-
-            #Select training batch 
-            if len(self.all_training_data) == len(self.current_generation_data):
-                dataset                         = self.all_training_data
-            else:
-                dataset                         = random.sample(self.all_training_data,k=int(len(self.all_training_data)/3))
-            
-            dataset                             = trainer.TrainerExpDataset(dataset)
-            #Train new model 
-            p_losses,v_losses                   = trainer.train_model(chess_model,dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas,n_epochs=self.n_epochs)
-            print(f"\t\t{Color.blue}[{epoch_num}]: p_loss:{Color.tan}{p_losses[-1]:.4f}\t{Color.blue}v_loss:{Color.tan}{v_losses[-1]:.4f}\t{Color.blue}size:[{len(dataset)}]{Color.end}\n")
-
-        return chess_model
-    
 
     #Finds the latest top_model
     def find_best_model(self):
@@ -534,19 +420,19 @@ class Server(Thread):
 
             #Place model back on cpu, in eval mode, and get state dict
             self.chess_model.eval().cpu()
-            self.model_state                            = self.chess_model.state_dict()
+            self.model_dict                            = self.chess_model.state_dict()
 
             #Save models 
             if not os.path.exists("generations/"):
                 os.mkdir('generations')
-            torch.save(self.model_state,f"generations/gen_{self.train_step}.dict")
+            torch.save(self.model_dict,f"generations/gen_{self.train_step}.dict")
 
             #Unlock clients
             self.return_client_to_train_state()
             
             #Update game params throughout training 
             if self.gen < 4:
-                self.game_params['n_iters']     = self.game_params['n_iters'] + 50
+                self.game_settings['n_iters']     = self.game_settings['n_iters'] + 50
 
 
     #Performs the work of checking if a new client is looking
@@ -563,8 +449,8 @@ class Server(Thread):
                                                          addr,
                                                          self.get_next_id(),
                                                          Queue(),
-                                                         self.model_state,
-                                                         self.game_params,
+                                                         self.model_dict,
+                                                         self.game_settings,
                                                          pack_len=self.pack_len)
             
             #If were in test mode, make sure to let client_manager know 
@@ -632,9 +518,8 @@ class Server(Thread):
         
         #Send updated model and unlock
         for client_manager in self.client_managers:
-            client_manager.top_model_params                 = self.model_state
+            client_manager.top_model_params                 = self.model_dict
             client_manager.unlock()
-
 
 
     #Safely close up shop
