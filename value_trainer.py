@@ -9,7 +9,7 @@ import torch
 import model 
 import os 
 import random 
-import chess_utils
+import chess.utilities as utilities
 import json
 from torch.utils.data import Dataset,DataLoader
 from matplotlib import pyplot as plt  
@@ -40,9 +40,9 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
         contents            = open(file,'r').read()
         fen_to_score_list   = json.loads(contents)
 
-        positions           = chess_utils.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
+        positions           = utilities.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
 
-        evals               = [torch.tensor(chess_utils.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
+        evals               = [torch.tensor(utilities.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
 
         train_positions += (positions)
         train_evals += (evals)
@@ -54,8 +54,8 @@ def build_dataset(data_path,bs=16,train_size=500,test_size=50):
         contents            = open(file,'r').read()
         fen_to_score_list   = json.loads(contents)
 
-        positions           = chess_utils.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
-        evals               = [torch.tensor(chess_utils.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
+        positions           = utilities.batched_fen_to_tensor([item[0] for item in fen_to_score_list])
+        evals               = [torch.tensor(utilities.clean_eval(item[1]),dtype=torch.float32) for item in fen_to_score_list]
 
         test_positions += (positions)
         test_evals += (evals)

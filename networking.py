@@ -4,17 +4,7 @@
 
 import socket
 import os 
-
-#Colorful display on terminal
-class Color:
-    os.system("")
-    blue    = '\033[94m'
-    tan     = '\033[93m'
-    green   = '\033[92m'
-    red     = '\033[91m'
-    bold    = '\033[1m'
-    end     = '\033[0m'    
-
+from utilities import Color
 
 
 def send_bytes(sock:socket.socket,bytes_message:bytes,pack_len:int) -> bool:

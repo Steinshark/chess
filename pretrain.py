@@ -6,7 +6,7 @@
 
 import chess
 import chess.engine
-import chess_utils
+import chess.utilities as utilities
 from model import ChessModel
 import numpy 
 import torch
@@ -30,7 +30,7 @@ class probPreSet:
 
         for position, move_count in move_visits:
             self.positions.append(position)
-            self.distributions.append(chess_utils.movecount_to_prob(move_count))
+            self.distributions.append(utilities.movecount_to_prob(move_count))
     
     def __getitem__(self,i):
         return (self.positions[i],self.distributions[i])
@@ -93,7 +93,7 @@ def train_probs(model:ChessModel,dataset:probPreSet,testset:probPreSet,lr=.001,b
     for batch_i,batch in enumerate(dataloader):
         optimizer.zero_grad()
 
-        position            = chess_utils.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
+        position            = utilities.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
         post_probs          = batch[1].to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
         prior_probs,evals   = model.forward(position)
 
@@ -106,7 +106,7 @@ def train_probs(model:ChessModel,dataset:probPreSet,testset:probPreSet,lr=.001,b
         for batch in testloader:
             with torch.no_grad():
                 model.eval()
-                position            = chess_utils.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
+                position            = utilities.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
                 post_probs          = batch[1].to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
                 prior_probs,evals   = model.forward(position)
                 post_max        = post_probs.max(dim=1)[1]
@@ -308,7 +308,7 @@ def pretrain(chess_model:ChessModel,exps,bs=4096,lr=.001,wd=.01,betas=(.5,.75)):
             
 
         #Get model output 
-        board_rerps         = chess_utils.batched_fen_to_tensor(fens).float()
+        board_rerps         = utilities.batched_fen_to_tensor(fens).float()
         #input(f"reprs are shape {board_rerps.shape}")
         probs,v             = chess_model.forward(board_rerps)
 
@@ -348,12 +348,12 @@ def generate_experiences(pack):#chess_model:ChessModel2,n_iters=16*4096):
                 position_fen            = board.fen()
 
                 #Make one pass with the network to get prior_probs
-                prior_probs,v           = chess_model.forward(chess_utils.batched_fen_to_tensor([position_fen]).float())
+                prior_probs,v           = chess_model.forward(utilities.batched_fen_to_tensor([position_fen]).float())
 
                 #Correct for legal moves
                 board_moves             = list(board.legal_moves)
-                revised_numpy_probs     = numpy.take(prior_probs[0].numpy(),[chess_utils.MOVE_TO_I[move] for move in board_moves])
-                revised_numpy_probs     = chess_utils.normalize_numpy(revised_numpy_probs,1)
+                revised_numpy_probs     = numpy.take(prior_probs[0].numpy(),[utilities.MOVE_TO_I[move] for move in board_moves])
+                revised_numpy_probs     = utilities.normalize_numpy(revised_numpy_probs,1)
 
                 full_prob_dist          = numpy.zeros(1968,numpy.float32)
 
@@ -362,14 +362,14 @@ def generate_experiences(pack):#chess_model:ChessModel2,n_iters=16*4096):
                 dir_epsilon             = dirichlet_scheduler(board.ply())
                 for prob,diri,move in zip(revised_numpy_probs,dirichlet,board_moves):
 
-                    move_i              = chess_utils.MOVE_TO_I[move]
+                    move_i              = utilities.MOVE_TO_I[move]
                     full_prob_dist[move_i]  = ((1-dir_epsilon)*prob + (dir_epsilon)*diri)
 
                 #record data    
                 move_i                  = numpy.argmax(full_prob_dist)
 
                 #Push the move 
-                board.push(chess_utils.I_TO_MOVE[move_i])
+                board.push(utilities.I_TO_MOVE[move_i])
                 local_exp.append([position_fen,move_i,full_prob_dist,0])
 
             #Check result and update 
@@ -478,17 +478,17 @@ if __name__ == "__main__":
         p,v             = trainer.check_vs_stockfish(chess_model)
         print(f"\titer: {iter_n}: p_loss={p:.4f}\tv_loss={v:.4f}")
         #Get d4,e4 provs 
-        prob,v_s        = chess_model.eval().forward(chess_utils.batched_fen_to_tensor([chess.Board().fen()]).float())
+        prob,v_s        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board().fen()]).float())
         mate_fen        = 'r1bqkbnr/2pppppp/ppn5/8/2B5/4PQ2/PPPP1PPP/RNB1K1NR w KQkq - 2 4'
         bmate_fen       = 'rnbqkbnr/pppp1ppp/4p3/8/5PP1/8/PPPPP2P/RNBQKBNR b KQkq - 0 2'
-        e4              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("e2e4")]]
-        f3              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("f2f3")]]
-        prob,v_m        = chess_model.eval().forward(chess_utils.batched_fen_to_tensor([chess.Board(fen=mate_fen).fen()]).float())
-        f7              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("f3f7")]]
-        c4              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("c4f7")]]
-        prob,v_b        = chess_model.eval().forward(chess_utils.batched_fen_to_tensor([chess.Board(fen=bmate_fen).fen()]).float())
-        h4              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("d8h4")]]
-        a6              = prob[0][chess_utils.MOVE_TO_I[chess.Move.from_uci("a7a6")]]
+        e4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("e2e4")]]
+        f3              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("f2f3")]]
+        prob,v_m        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board(fen=mate_fen).fen()]).float())
+        f7              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("f3f7")]]
+        c4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("c4f7")]]
+        prob,v_b        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board(fen=bmate_fen).fen()]).float())
+        h4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("d8h4")]]
+        a6              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("a7a6")]]
         print(f"\t START v:{v_s.item():.4f}\te4: {e4:.5f}\tf3:{f3:.5f}")
         print(f"\t WMATE v:{v_m.item():.4f}\tf7: {f7:.5f}\tc4:{c4:.5f}")
         print(f"\t BMATE v:{v_b.item():.4f}\th4: {f7:.5f}\ta6:{c4:.5f}")

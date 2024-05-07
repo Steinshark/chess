@@ -6,7 +6,7 @@
 
 import chess
 import torch
-import chess_utils
+import utilities
 import numpy
 import sys
 import math
@@ -120,7 +120,7 @@ class Node:
             with torch.no_grad():   #no grad! (obviously)
 
                 #Representation as a (bs,19,8,8) tensor
-                board_repr              = chess_utils.batched_fen_to_tensor([board_key]).float()
+                board_repr              = utilities.batched_fen_to_tensor([board_key]).float()
 
                 #Perform copy to static memory in GPU (large speedup if using GPU)
                 static_gpu.copy_(board_repr)
@@ -133,8 +133,8 @@ class Node:
                 static_cpu_v.copy_(eval[0])
 
                 #Convert to numpy and renormalize
-                revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[chess_utils.MOVE_TO_I[move] for move in moves])
-                revised_numpy_probs     = chess_utils.normalize_numpy(revised_numpy_probs,1)
+                revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[utilities.MOVE_TO_I[move] for move in moves])
+                revised_numpy_probs     = utilities.normalize_numpy(revised_numpy_probs,1)
 
                 #Add to dictionary and just return from dictionary
                 lookup_dict[board_key]  = (revised_numpy_probs,static_cpu_v.numpy())

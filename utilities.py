@@ -8,21 +8,26 @@ import torch
 import numpy 
 import chess 
 import json 
-from chess import engine
-
+import os
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
 CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
 MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
 I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
-TENSOR_CHANNELS = 19
 
-def build_engine():
-    engine              = engine.SimpleEngine.popen_uci("C:/gitrepos/stockfish/sf16.exe")
-    return engine
+#Add Color to terminal output
+class Color:
+    os.system("")
+    blue    = '\033[94m'
+    tan     = '\033[93m'
+    green   = '\033[92m'
+    red     = '\033[91m'
+    bold    = '\033[1m'
+    end     = '\033[0m'    
 
 
+#Process fen strings to replace numbers with "e" (empty - i.e. no piece)
 def fen_processor(fen:str):
     for i in range(1,9):
         fen 	= fen.replace(str(i),"e"*i)
@@ -46,52 +51,24 @@ def fen_to_tensor_lite(fen_info:list):
                 this_board[PIECES[piece],rank_i,file_i]	= 1.  
     
     #Place castling 
-    this_board[-5,:,:]      = numpy.ones(shape=(8,8)) * 1. if "K" in castling else 0.            
-    this_board[-4,:,:]      = numpy.ones(shape=(8,8)) * 1. if "Q" in castling else 0.            
-    this_board[-3,:,:]      = numpy.ones(shape=(8,8)) * 1. if "k" in castling else 0.            
-    this_board[-2,:,:]      = numpy.ones(shape=(8,8)) * 1. if "q" in castling else 0.            
+    this_board[-5,:,:]      = 1. if "K" in castling else 0.            
+    this_board[-4,:,:]      = 1. if "Q" in castling else 0.            
+    this_board[-3,:,:]      = 1. if "k" in castling else 0.            
+    this_board[-2,:,:]      = 1. if "q" in castling else 0.            
 
     #Place turn 
-    this_board[-1,:,:]      = numpy.ones(shape=(8,8)) * 1. if turn == "w" else -1.
+    this_board[-1,:,:]      = 1. if turn == "w" else -1.
 
     return this_board
 
-    
-def fen_to_tensor(fen):
 
-    #Encoding will be an 15x8x8 tensor 
-    #	7 for whilte, 7 for black 
-    # 	1 for move 
-    #t0 = time.time()
-    board_tensor 	= numpy.zeros(shape=(7+7+1,8,8),dtype=numpy.int8)
-    piece_indx 	    = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
-    
-    #Go through FEN and fill pieces
-    for i in range(1,9):
-        fen 	= fen.replace(str(i),"e"*i)
-
-    position	= fen.split(" ")[0].split("/")
-    turn 		= fen.split(" ")[1]
-    castling 	= fen.split(" ")[2]
-    
-    #Place pieces
-    for rank_i,rank in enumerate(reversed(position)):
-        for file_i,piece in enumerate(rank): 
-            if not piece == "e":
-                board_tensor[piece_indx[piece],rank_i,file_i]	= 1.  
-
-    #Place turn 
-    board_tensor[-1,:,:]    = numpy.ones(shape=(8,8),dtype=torch.int8) * 1. if turn == "w" else -1.
-
-    return torch.from_numpy(board_tensor)
-
-
-def batched_fen_to_tensor(fenlist) -> torch.tensor:
+#Process a batch of tensors
+def batched_fen_to_tensor(fenlist) -> torch.Tensor:
 
     #Encoding will be an bsx15x8x8 tensor 
-    #	7 for white, 7 for black 
-    #   4 for castling
-    # 	1 for move 
+    #	6 for white pieces, 6 for black pieces {0,1} 
+    #   4 for castling rights {0,1}
+    # 	1 for move {-1,1}
     
     #Clean fens
     fen_info_list   = map(fen_processor,fenlist)
@@ -104,6 +81,7 @@ def batched_fen_to_tensor(fenlist) -> torch.tensor:
     return torch.from_numpy(numpy_boards)
 
 
+#Normalize a list of values 
 def normalize(X,temperature=1):
 
     #apply temperature
@@ -114,12 +92,14 @@ def normalize(X,temperature=1):
     return [x/cumsum for x in X]
 
 
+#Normalize a list of values assuming X is a numpy array
 def normalize_numpy(X,temperature=1):
     X           = numpy.power(X,1/temperature)
 
     return X / numpy.sum(X)
 
 
+#Scheduler for the temperature parameter
 def temp_scheduler(ply:int):
 
     #Hold at 1 for first 10 moves 
@@ -128,8 +108,9 @@ def temp_scheduler(ply:int):
     else:
         return max(1 - .02*(ply - 10),.01)
 
-
-def movecount_to_prob(movecount,to_tensor=True):
+#Convert a dict of move_uci->visit count to a normalized list 
+#   in the same order that the moves were in the dict
+def movecount_to_prob(movecount):
 
     #Prep zero vector
     probabilities   = [0 for _ in CHESSMOVES]
@@ -145,8 +126,7 @@ def movecount_to_prob(movecount,to_tensor=True):
     return torch.tensor(norm)
 
 
-
-
+#Convert an evaluation from the engine (-1_000_000,1_000_000) -> (-1,1)
 def clean_eval(evaluation):
     
     if evaluation > 0:
@@ -154,6 +134,10 @@ def clean_eval(evaluation):
     else:
         return max(-1500,evaluation) / 1500
 
+
+#Generate the key for a given chess Board 
+def generate_board_key(board:chess.Board):
+    return " ".join(board.fen().split(" ")[:4])
 
 if __name__ == "__main__":
     b = chess.Board()

@@ -2,9 +2,8 @@
 #Description:   Handles client side computing and interfacing with the 
 #              client_manager (found in net_chess.py)
 
-import alg_train
 from model import ChessModel
-from Server import Color
+from utilities import Color
 import torch
 import json
 import socket

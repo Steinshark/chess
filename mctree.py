@@ -9,12 +9,10 @@ import chess
 import time 
 import model 
 import torch
-import value_trainer
+import utilities
 import numpy
-import sys
-import chess_utils
 from collections import OrderedDict
-import random 
+import settings
 
 
 #Creates an instance of a Monte-Carlo style Tree
@@ -29,7 +27,7 @@ import random
 class MCTree:
 
 
-    def __init__(self,from_fen="",max_game_ply=160,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),lookup_dict={}):
+    def __init__(self,from_fen="",max_game_ply=settings.MAX_PLY,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),lookup_dict={}):
         
 
         #Check if a fen is provided, otherwise use the chess starting position
@@ -40,14 +38,14 @@ class MCTree:
 
         #Define the root node (the one that will be evaluatioed) and set 
         #search variables
-        self.root:Node              = Node(None,None,.2,0,self.board.turn) 
+        self.root:Node              = Node(None,None,0,0,self.board.turn) 
         self.curdepth               = 0 
         self.max_game_ply           = max_game_ply 
 
         #Training vars (control exploration of the engine)
         #   set these to 0 to perform an actual evaluation.
-        self.dirichlet_a            = .3
-        self.dirichlet_e            = .2 
+        self.dirichlet_a            = settings.DIR_A
+        self.dirichlet_e            = settings.DIR_E
 
         #Keep track of prior explored nodes
         self.explored_nodes         = lookup_dict
@@ -56,21 +54,11 @@ class MCTree:
         #Check override device 
         self.device                 = device
 
-        #Create template in GPU to copy boardstate into
-        #   if using cpu, these are not send to GPU and not pinned
-        
-        # CPU SPECIFIC 
-        # self.static_tensorGPU       = torch.empty(size=(1,17,8,8),dtype=torch.float16,requires_grad=False,device=self.device)
-        # self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        # self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float16,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorGPU       = torch.empty(size=(1,17,8,8),dtype=torch.float,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(1968,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
-        #/CPU SPECIFIC
-        #Only pin memory if using a CUDA device 
-        if not self.device  == torch.device('cpu'):
-            self.static_tensorCPU_P.pin_memory()            
-            self.static_tensorCPU_V.pin_memory()
+        #Create static memory locations on GPU and CPU to reduce memory allocations    
+        self.static_tensorGPU       = torch.empty(size=settings.JIT_SHAPE,dtype=torch.float,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(settings.N_CHESS_MOVES,dtype=torch.float,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu')).pin_memory()
+
 
 
     #Loads in the model to be used for evaluation 
@@ -78,31 +66,30 @@ class MCTree:
     #                   - a string specifying a file containing a state_dict
     #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel().to(self.device)
+        self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).to(self.device)
 
 
         if isinstance(state_dict,str):
             if not state_dict == '':
                 self.chess_model.load_state_dict(torch.load(state_dict))
-            print(f"\tloaded model '{state_dict}'")
+
         elif isinstance(state_dict,OrderedDict):
             self.chess_model.load_state_dict(state_dict)
+
         elif isinstance(state_dict,torch.nn.Module):
-            self.chess_model    = state_dict
+            self.chess_model                = state_dict
+
         else:
-            print(f"found something strage[{type(state_dict)}]")
+            print(f"{utilities.Color.red}found something strage[{type(state_dict)}]{utilities.Color.end}")
             exit()
             
 
         #As of not, not retracing due to memory issues??
-        self.chess_model            = self.chess_model.eval().to(self.device)#.half()
+        self.chess_model                    = self.chess_model.eval().to(self.device).type(settings.DTYPE)
 
-        # CPU SPECIFIC
-        torch.backends.cudnn.enabled    = True
-        #self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float16)])
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float)])
-        self.chess_model 			= torch.jit.freeze(self.chess_model)
-        #/CPU SPECIFIC
+        torch.backends.cudnn.enabled        = True
+        self.chess_model 			        = torch.jit.trace(self.chess_model,[torch.randn(size=settings.JIT_SHAPE,device=self.device,dtype=settings.DTYPE)])
+        self.chess_model 			        = torch.jit.freeze(self.chess_model)
         
 
     #Perform one exploration down the tree
@@ -119,8 +106,10 @@ class MCTree:
                 child.prior_p    = (1-self.dirichlet_e)*child.prior_p + dirichlet[i]*self.dirichlet_e
                 child.pre_compute()
             add_after       = False
+        
         elif initial and not self.root.children:
             add_after       = True
+        
         else:
             add_after       = False
 

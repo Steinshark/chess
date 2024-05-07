@@ -23,8 +23,6 @@ from tkinter.ttk    import Checkbutton, Button,Entry, Label
 from tkinter.ttk    import Combobox, Progressbar
 from ttkthemes import ThemedTk
 from cairosvg import svg2png
-import Client
-import chess_player
 from tkinter.ttk import Frame, Style
 
 #System related 
@@ -38,15 +36,12 @@ from pprint import pp
 
 #ML related
 import torch 
-import numpy
-from Client import Client 
-from Server import Server
+from client import Client 
+from server import Server
 import mctree
 
 #Network related 
-import socket
 import threading
-from queue import Queue
 import PIL
 from PIL import ImageTk
 
@@ -55,10 +50,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 sys.path.append("C:/gitrepos")
 
 
-PLAYER_TYPES            = {"Human":chess_player.SteinChessPlayer,"Engine":chess_player.HoomanChessPlayer}
 MODEL_DICTS             = [os.path.join("generations",fname) for fname in os.listdir("generations") if "gen_" in fname and ".dict" in fname]
 
-SERVER_IP               = '192.168.68.105'
+SERVER_IP               = '192.168.68.101'
 
 #A GUI program to make life easier
 class ChessApp:
@@ -66,8 +60,6 @@ class ChessApp:
     def __init__(self):
         #Chess related variables
         self.board              = chess.Board()
-        self.player_white       = chess_player.ChessPlayer(self.board)
-        self.player_black       = chess_player.ChessPlayer(self.board)
         self.current_moves      = list(self.board.generate_legal_moves())
         
         #Network variabls 

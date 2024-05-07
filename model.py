@@ -5,18 +5,17 @@
 
 
 import torch
-import chess_utils
 
 class ChessModel(torch.nn.Module):
 
 
-    def __init__(self,in_ch:int=17,n_channels:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
+    def __init__(self,repr_ch:int=17,conv_ch:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
 
         super(ChessModel,self).__init__()
         #n_channels is set to 16 currently
-        v_conv_n      = n_channels
-        h_conv_n      = n_channels
-        f_conv_n      = n_channels//2
+        v_conv_n      = conv_ch
+        h_conv_n      = conv_ch
+        f_conv_n      = conv_ch//2
 
         inter_sum     = v_conv_n+h_conv_n+f_conv_n
 
@@ -28,15 +27,15 @@ class ChessModel(torch.nn.Module):
 
 
         #LAYER 1
-        self.vconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
+        self.vconv1         = torch.nn.Sequential(torch.nn.Conv2d(repr_ch,v_conv_n,kernel_size=(7+7+1,1),stride=1,padding=(7,0),bias=False),
                                                   torch.nn.BatchNorm2d(v_conv_n),
                                                   conv_act(**act_kwargs))
 
-        self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(in_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
+        self.hconv1         = torch.nn.Sequential(torch.nn.Conv2d(repr_ch,h_conv_n,kernel_size=(1,7+7+1),stride=1,padding=(0,7),bias=False),
                                                   torch.nn.BatchNorm2d(h_conv_n),
                                                   conv_act(**act_kwargs))
 
-        self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
+        self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(repr_ch,f_conv_n,kernel_size=(7),stride=1,padding=3,bias=False),
                                                   torch.nn.BatchNorm2d(f_conv_n),
                                                   conv_act())
 
@@ -89,7 +88,7 @@ class ChessModel(torch.nn.Module):
                                                   torch.nn.Tanh())
 
 
-    def forward(self,x:torch.Tensor) -> torch.Tensor:
+    def forward(self,x:torch.Tensor) -> tuple[torch.Tensor,torch.Tensor]:
 
         #Round1
         v1                  = self.vconv1(x)

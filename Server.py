@@ -6,22 +6,20 @@
 
 from collections import OrderedDict
 import torch 
-from mctree import MCTree
 import socket
 import json
-import numpy
 from queue import Queue
 from threading import Thread
 from model import ChessModel
 from io import BytesIO
 import random
 import trainer 
-from copy import deepcopy
 import time 
 import os
 from hashlib import md5
 import networking
-from networking import Color
+from utilities import Color
+import settings
 
 #Runs on the client machine and generates training data 
 #   by playing games againts itself
@@ -48,9 +46,8 @@ class Client_Manager(Thread):
         self.in_game                = False
         self.lock                   = False
 
-        #Set 500 sec timeout 
+        #Set 30min timeout
         self.client_socket.settimeout(3600/2)
-
         print(f"\n\t{Color.green}launched a new client manager for {Color.tan}{self.client_address}\n{Color.end}")
 
 
@@ -60,18 +57,14 @@ class Client_Manager(Thread):
         return True
     
 
-    def recieve_model(self,new_model):
-        self.model_state                    = new_model
-        self.top_model_params               = new_model
-    
-
+    #Instructs the client to generate training experiences
     def run_training_game(self):
 
         #Send model parameters to generate training data 
-        self.send_model_params(self.top_model_params)
+        self.send_model_dict(self.model_dict)
 
         #Send game parameters to play with
-        self.send_game_params(self.game_settings)
+        self.send_game_settings(self.game_settings)
         
         #CLIENT PLAYS GAME 
 
@@ -107,7 +100,7 @@ class Client_Manager(Thread):
             return False
 
     
-    def send_model_params(self,parameters:OrderedDict):
+    def send_model_dict(self,parameters:OrderedDict):
 
         #Create a BytesIO buffer to load model into
         data_buffer                     = BytesIO()
@@ -131,7 +124,7 @@ class Client_Manager(Thread):
             networking.send_bytes(self.client_socket,params_as_bytes,self.pack_len)
     
 
-    def send_game_params(self,parameters:dict):
+    def send_game_settings(self,parameters:dict):
                
         #Send game parameters to client 
         data_packet                 = json.dumps(parameters)
@@ -180,19 +173,18 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(17,16).eval().cpu().float()
-        self.model_dict                            = self.chess_model.state_dict()
-        #self.model_state                            = torch.load("generations/gen_1.dict")
+        self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu().float()
+        self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         #Game items
-        self.game_settings                            = {"ply":160,"n_iters":800,"n_exp":2048,"n_parallel":8}
+        self.game_settings                            = {"ply":settings.MAX_PLY,"n_iters":settings.SEARCH_ITERS,"n_exp":settings.DATASIZE,"n_parallel":settings.PARALLEL_TREES}
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 132072
+        self.train_every                            = 32768
         self.exp_counter                            = 0
-        self.bs                                     = 2048
+        self.bs                                     = 1024
         self.lr                                     = .0001
         self.wd                                     = 0
         self.betas                                  = (.5,.9)
@@ -277,7 +269,7 @@ class Server(Thread):
                 hitlist.append(client_index)
             else:
                 #Pass-on most recent model 
-                client.recieve_model(self.model_dict)
+                client.model_dict   = self.model_dict
                 
         for client_index in hitlist:
             self.client_managers.pop(client_index)

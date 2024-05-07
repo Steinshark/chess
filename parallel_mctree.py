@@ -10,133 +10,113 @@ import time
 import model
 import torch
 import numpy
-import chess_utils
+import utilities
 from collections import OrderedDict
 from memory_profiler import profile
 import random
+import settings
+import multiprocessing
 
-
-#TODO 
-#   Re-configure for GPU evaluation
 
 class MCTree:
 
 
-    def __init__(self,id:int,max_game_ply=160,n_iters=800,lookup_dict={},device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),alpha=.3,epsilon=.2):
+    def __init__(self,id:int,max_game_ply=settings.MAX_PLY,n_iters=800,lookup_dict={},device=torch.device("cuda" if torch.cuda.is_available() else 'cpu'),alpha=settings.DIR_A,epsilon=settings.DIR_E):
 
 
         #Create game board
-        self.board              = chess.Board(fen='1nbqkb1r/1rppnppp/pp2P3/8/6P1/4PQ2/PPPP3P/RNB1KBNR w KQk - 2 7')
+        self.board                          = chess.Board()
 
         #Define the root node (the one that will be evaluatioed) and set
         #search variables
-        self.root:Node              = Node(None,None,0,0,self.board.turn)
-        self.curdepth               = 0
-        self.max_game_ply           = max_game_ply
-        self.n_iters                = n_iters
+        self.root:Node                      = Node(None,None,0,0,self.board.turn)
+        self.curdepth                       = 0
+        self.max_game_ply                   = max_game_ply
+        self.n_iters                        = n_iters
 
         #Training vars (control exploration of the engine)
         #   set these to 0 to perform an actual evaluation.
-        self.dirichlet_a            = alpha
-        self.dirichlet_e            = epsilon
+        self.dirichlet_a                    = alpha
+        self.dirichlet_e                    = epsilon
 
         #Keep track of prior explored nodes
-        self.lookup_dict            = lookup_dict
-        self.common_nodes:list[Node]= {}
-        self.gpu_blocking           = False
+        self.lookup_dict                    = lookup_dict
+        self.common_nodes:dict[Node,set]    = {}
+        self.gpu_blocking                   = False
         
         #Multithread vars 
-        self.pending_fen            = None
-        self.reached_iters          = False
-        self.game_result            = None
-        self.awaiting_eval          = False
-        self.game_datapoints        = []
-        self.id                     = id
-        self.start_time             = time.time()
+        self.pending_fen                    = None
+        self.reached_iters                  = False
+        self.game_result                    = None
+        self.awaiting_eval                  = False
+        self.game_datapoints                = []
+        self.id                             = id
+        self.start_time                     = time.time()
+        
         #Check override device
-        self.device                 = device
-        self.t0  = time.time()
-
+        self.device                         = device
 
 
     #Performs tree expansions until it finds a node that requires an evaluation 
     #   Recursively calls itself until the tree is pending an evaluation, in which case
     #   class variables are updated to communicate with the handler
-    def perform_nongpu_iter(self):
+    def perform_noncompute_iter(self):
+
         #Check if time to make a move
         if self.root.n_visits > self.n_iters:
-            self.reached_iters          = True 
-            self.awaiting_eval          = False
-            self.pending_fen            = None 
+            self.reached_iters              = True 
+            self.awaiting_eval              = False
+            self.pending_fen                = None 
 
+            #Reset the board before attempting
             for _ in range(self.curdepth):
                 self.board.pop()
-            self.curdepth               = 0
+            self.curdepth                   = 0
             return         
             
         #Get to bottom of tree via traversal algorithm
-        curnode                         = self.root
-        mk                              = 0
+        curnode                             = self.root
         while not curnode.is_leaf():
-            try:
-                curnode         = curnode.pick_best_child()
-                self.board.push(curnode.move)
-                self.curdepth   += 1
-                mk += 1
-            except AssertionError:
-                print(f"id {self.id} {self.board.fen()} failed to push {curnode.move} after {mk}")
-                exit()
-        
-        #Node key
-        curnode.key                     = " ".join(self.board.fen().split(" ")[:4])
+            curnode                         = curnode.pick_best_child()
+            self.board.push(curnode.move)
+            self.curdepth                   += 1
 
+        #Set curnode key 
+        curnode.key                         = utilities.generate_board_key(self.board)
         #Check if gameover node and update node in tree 
         if self.board.is_game_over():
-            game_result                 = Node.RESULTS[self.board.result()]
+            game_result                     = Node.RESULTS[self.board.result()]
             self.perform_endgame_expansion(curnode,game_result)
 
-        #Curnode now needs to be expanded
+        #Else check if this board already has a value
         elif curnode.key in self.lookup_dict:
             self.curnode:Node           = curnode
             self.perform_expansion()
-            self.perform_nongpu_iter()
+            self.perform_noncompute_iter()
+        
+        #Else queue up for a model evaluation
         else:
             self.curnode:Node           = curnode
             self.pending_fen            = self.board.fen()
             self.awaiting_eval          = True
             
 
-    #Perform a post-GPU call expansion of the nodes. 
-    #   The idea is that after a GPU batch is run, the results are placed into the 
-    #   lookup dict and a 'perform_expansion' can be done without the next move requiring
-    #   an evaluation
-    def perform_gpu_expansion(self):
-
-        #Expand, now that we have the value in the dict
-        self.perform_expansion()
-
-        #Reset gpu-pending vars 
-        self.awaiting_eval              = False 
-        self.pending_fen                = None
-
-
     #Perform expansion given that the node is an endstate 
     def perform_endgame_expansion(self,node:Node,evaluation:float):
-
         #Check in common nodes
         if node.key in self.common_nodes:
             self.common_nodes[node.key].add(node)
         else:
-            self.common_nodes[node.key] = set([node])
+            self.common_nodes[node.key]     = set([node])
 
-        #Propogate value
-        for common_node in self.common_nodes[node.key]:
-                common_node.bubble_up(evaluation)
+        #Propogate value up tree
+        [common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
         
         #Unpop gameboard 
         for _ in range(self.curdepth):
             self.board.pop()
 
+        #Reset board depth
         self.curdepth = 0
 
 
@@ -144,16 +124,23 @@ class MCTree:
     def perform_expansion(self):
 
         node                            = self.curnode
+
         #Get pre-computed values
         revised_probs,evaluation,count  = self.lookup_dict[node.key]
-        #input(f"led to -> {evaluation}")
+
         #Increment visit count
         self.lookup_dict[node.key][-1]  += 1
 
+
+        moves = list(self.board.generate_legal_moves())
+        probs   = revised_probs
+
+        if not probs.shape[0] == len(moves):
+            print(f"descrepency on {utilities.generate_board_key(self.board)} -> {probs.shape,len(moves)}")
+        #Generate node children (self.board is in the state of the current node)
         node.children                   = [Node(move,node,revised_probs[i],node.depth+1,not self.board.turn) for i,move in enumerate(self.board.generate_legal_moves())]
         
-
-        #If this is the root, then apply dirichlet 
+        #If this is the root, then apply dirichlet noise to encourage exploration
         if node == self.root:
             self.apply_dirichlet()
     
@@ -162,13 +149,14 @@ class MCTree:
             self.common_nodes[node.key].add(node)
         else:
             self.common_nodes[node.key] = set([node])
-        #Bubble-up for all common nodes
-        for common_node in self.common_nodes[node.key]:
-            common_node.bubble_up(evaluation)
+
+        #Propogate value up tree
+        [common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
         
         #Unpop gameboard 
         for _ in range(self.curdepth):
             self.board.pop()
+
         self.curdepth = 0
 
 
@@ -176,6 +164,8 @@ class MCTree:
     #   argument 'greedy' determines if it will be based on max move count, 
     #   or sampling from the distribution
     def get_top_move(self,greedy=False):
+
+
         if greedy:
             top_move                    = None 
             top_visits                  = 0 
@@ -197,7 +187,6 @@ class MCTree:
     #   Dirichelt noise is added here because the next 
     #   Root will need it for the exploration
     def make_move(self):
-
         #Save experience
         board_fen                   = self.board.fen()
         post_probs                  = {node.move.uci():node.n_visits for node in self.root.children}
@@ -286,8 +275,6 @@ class MCTree:
         return
 
 
-
-
 #Creates an instance of a Monte-Carlo style Tree
 #   to develop an evaluation of a given position, the tree
 #   functions as follows:
@@ -298,7 +285,6 @@ class MCTree:
 #       -   crawl back up the tree and update each parent node
 #               of the explored leaf with the score
 class MCTree_Handler:
-
 
     def __init__(self,n_parallel=8,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),max_game_ply=160,n_iters=800):
 
@@ -319,11 +305,12 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.uint8,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.stop_sig               = False
+
 
     #Load a state dict for the common model
     def load_dict(self,state_dict):
@@ -360,8 +347,8 @@ class MCTree_Handler:
 
 
     #Performs an algorithm iteration filling the gpu to its batchsize
-    #@profile
     def collect_data(self,n_exps=32_768):
+
 
         #Gather n_exps
         while len(self.dataset) < n_exps and not self.stop_sig:
@@ -372,36 +359,36 @@ class MCTree_Handler:
             
             #Pass thorugh to model and redistribute to trees
             with torch.no_grad():
-                model_batch:torch.tensor                = chess_utils.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).float()
+                model_batch:torch.tensor                = utilities.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).type(torch.uint8)
                 
-                #TEST                
                 #Copy to GPU device 
                 self.static_tensorGPU.copy_(model_batch)
-                priors,evals                            = self.chess_model(self.static_tensorGPU)
-
-                #Bring them back
-                self.static_tensorCPU_P.copy_(priors,non_blocking=True)
-                self.static_tensorCPU_V.copy_(evals)
+                priors,evals                            = self.chess_model(self.static_tensorGPU.type(settings.DTYPE))
+                #Bring them back to CPU
+                self.static_tensorCPU_P.copy_(priors.type(torch.float16),non_blocking=True)
+                self.static_tensorCPU_V.copy_(evals.type(torch.float16))
+                self.static_tensorGPU.type(torch.uint8)
                 torch.cuda.synchronize()
                 
                 #Precompute tree moves 
-                tree_moves                              = [[chess_utils.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()] for tree in self.active_trees]
+                tree_moves                              = [[utilities.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()] for tree in self.active_trees]
+                
+                #Process all tree probabilities to zero out all non-legal moves
                 for prior_probs,evaluation,tree,moves in zip(self.static_tensorCPU_P,self.static_tensorCPU_V,self.active_trees,tree_moves):
-                    
-                    #Correct probs for legal moves 
+
+                    #Pull out only the legal moves
                     revised_numpy_probs                 = numpy.take(prior_probs.numpy(),moves)
-                    revised_numpy_probs                 = chess_utils.normalize_numpy(revised_numpy_probs,1)
-                    
+                    revised_numpy_probs                 = utilities.normalize_numpy(revised_numpy_probs,1)
+
                     #Add to lookup dict 
-                    self.lookup_dict[tree.curnode.key]  = [revised_numpy_probs,evaluation[0].numpy(),0]
+                    self.lookup_dict[tree.curnode.key]  = [revised_numpy_probs,evaluation.item(),0]
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
                     
-                #Perform the expansion relying on GPU 
+            #Perform the expansion previously waiting on eval 
             [tree.perform_expansion() for tree in self.active_trees]
 
-        
         return self.dataset
    
 
@@ -423,14 +410,14 @@ class MCTree_Handler:
 
             #Place in new tree
             self.active_trees[i]    =    new_tree
-            self.active_trees[i].perform_nongpu_iter()
+            self.active_trees[i].perform_noncompute_iter()
 
             #Clean up the lookup dict 
             self.clean_lookup_dict()
 
         #Tree will start another search
         else:
-            tree.perform_nongpu_iter()
+            tree.perform_noncompute_iter()
 
 
     #This method will get all boards to a state where they require a GPU evaluation
@@ -442,8 +429,7 @@ class MCTree_Handler:
             #Perform tree-search until EITHER:
             #   Node needs a gpu eval (NEEDS TO BE ROLLED BACK)
             #   Node is ready to push moves
-            [tree.perform_nongpu_iter() for tree in self.active_trees if tree.pending_fen is None]
-
+            [tree.perform_noncompute_iter() for tree in self.active_trees if tree.pending_fen is None]
             #Check why we got a None value 
             for i,tree in enumerate(self.active_trees):
                 
@@ -457,9 +443,8 @@ class MCTree_Handler:
                     #   Gameover (Create new)
                     #   New tree (Get to gpu-eval needed)
                     self.check_gameover(tree,i)
+
         
-        #
-        # print(f"{[tree.pending_fen for tree in self.active_trees]}")
         #
         # input(f"all ready for GPU COMPUTE")
 
@@ -471,9 +456,9 @@ class MCTree_Handler:
         self.n_parallel         = n_parallel
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.float32,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float32,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,settings.REPR_CH,8,8),   dtype=settings.DTYPE,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),                   dtype=settings.DTYPE,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),                      dtype=settings.DTYPE,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.active_trees           = [MCTree(max_game_ply=max_game_ply,lookup_dict=self.lookup_dict,n_iters=n_iters,id=tid) for tid in range(n_parallel)]
 
@@ -500,13 +485,22 @@ class MCTree_Handler:
         
         return
 
+
 #DEBUG puporses
 if __name__ == '__main__':
 
+    # from matplotlib import pyplot as plt
+    # for n_parallel in [1,8,16]:
+    #     times = [] 
+    #     for iters in [100,200,300,400,500,600,800,1200,1600]:
     t0 = time.time()
-    manager                 = MCTree_Handler(1,max_game_ply=10,n_iters=300)
-    #manager.load_dict(manager.chess_model.state_dict())
-    data                    = manager.collect_data(n_exps=25)
-
+    manager                 = MCTree_Handler(2,max_game_ply=64,n_iters=100)
+    data                    = manager.collect_data(n_exps=256)
+    print(f"{(time.time()-t0)/len(data):.2f}s/move")
+    #         times.append((time.time()-t0)/len(data))
+    #     plt.plot(times,label=f"{n_parallel} simul")
+    
+    # plt.legend()
+    # plt.show()
 
 

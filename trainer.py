@@ -4,8 +4,7 @@ import model
 import json
 import os
 import chess
-import chess_utils
-import mctree
+import utilities
 from mctree import MCTree
 from torch.utils.data import Dataset,DataLoader
 import multiprocessing
@@ -44,7 +43,7 @@ class chessExpDataSet(Dataset):
                     self.distros.append(distribution)
                     self.z_vals.append((game_outcome+q_value)/2)        #TRAIN ON AVERAGE
 
-        self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
+        self.distros    = list(map(utilities.movecount_to_prob,self.distros))
 
         self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
 
@@ -83,7 +82,7 @@ class TrainerExpDataset(Dataset):
             except KeyError:
                 pass
 
-        self.distros    = list(map(chess_utils.movecount_to_prob,self.distros))
+        self.distros    = list(map(utilities.movecount_to_prob,self.distros))
 
         self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
 
@@ -119,8 +118,8 @@ class stockfishExpDataSet(Dataset):
 
                 for item in game_data:
                     fen             = item[0]
-                    evaluation      = chess_utils.clean_eval(item[1])
-                    bestmove_id     = chess_utils.MOVE_TO_I[chess.Move.from_uci(item[2])]
+                    evaluation      = utilities.clean_eval(item[1])
+                    bestmove_id     = utilities.MOVE_TO_I[chess.Move.from_uci(item[2])]
 
                     distro          = torch.zeros(1968,dtype=torch.float)
                     distro[bestmove_id] =  1
@@ -168,7 +167,7 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             fens,distr,z            = batch
 
             #Transform data to useful things
-            board_repr              = chess_utils.batched_fen_to_tensor(fens).to(DEVICE).float()
+            board_repr              = utilities.batched_fen_to_tensor(fens).to(DEVICE).float()
             z_vals                  = z.unsqueeze(dim=1).float().to(DEVICE)
             distr                   = distr.float().to(DEVICE)
 
@@ -222,10 +221,10 @@ def check_vs_stockfish(chess_model:model.ChessModel):
         for experience in baseline_data[:64]:
 
             #Get data
-            board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
-            board_eval  = torch.tensor([chess_utils.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
-            probs       = [0 for _ in chess_utils.CHESSMOVES]
-            probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
+            board_repr  = utilities.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
+            board_eval  = torch.tensor([utilities.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
+            probs       = [0 for _ in utilities.CHESSMOVES]
+            probs[utilities.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
             board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
 
             #Get model
@@ -259,10 +258,10 @@ def train_on_stockfish(chess_model:model.ChessModel):
         optim.zero_grad()
 
         #Get data
-        board_repr  = chess_utils.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
-        board_eval  = torch.tensor([chess_utils.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
-        probs       = [0 for _ in chess_utils.CHESSMOVES]
-        probs[chess_utils.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
+        board_repr  = utilities.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
+        board_eval  = torch.tensor([utilities.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
+        probs       = [0 for _ in utilities.CHESSMOVES]
+        probs[utilities.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
         board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
 
         #Get model
