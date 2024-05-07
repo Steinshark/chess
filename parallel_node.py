@@ -5,7 +5,6 @@
 
 
 import chess
-import torch
 import utilities
 import numpy
 import math
@@ -14,7 +13,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 4
+    c           = 3
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,
@@ -24,7 +23,7 @@ class Node:
 
 
 
-    def __init__(self,move:chess.Move,parent,prior_p:float|torch.Tensor,depth,turn:bool):
+    def __init__(self,move:chess.Move,parent,prior_p:float,depth,turn:bool):
 
         #Postition related vars
         self.move               = move
@@ -40,19 +39,18 @@ class Node:
 
         #Node related vars and such
         self.n_visits           = 0
-        self.prior_p            = prior_p
-        self.n_wins             = 0
+        self.prior_p            = float(prior_p)
         self.cumulative_score   = 0
         self.key                = None
 
         #precompute val for score computation (good speedup)
-        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
+        self.precompute         = -1 * self.turn * self.c * self.prior_p
 
 
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
-        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
+        self.precompute         = -1 * self.turn * self.c * self.prior_p
 
 
     #Make mctree code cleaner by wrapping this
@@ -101,85 +99,15 @@ class Node:
         return self.cumulative_score / (self.n_visits+1)
 
 
-    #Used for debugging to prevent gigantic floats
-    def get_score_str(self):
-        return f"{self.get_score():.3f}"
-
-
-    #Performs "rollout" i.e. returns the network evaluation of the postiion.
-    #Uses a lookup dictionary based on position fen to avoid redoing work
-    def run_rollout(self,board:chess.Board,model:torch.nn.Module,board_key:str,lookup_dict:dict,moves:list,static_gpu:torch.Tensor,static_cpu_p:torch.Tensor,static_cpu_v:torch.Tensor):
-
-        #Check dictionary
-        if board_key in lookup_dict:
-            return lookup_dict[board_key]
-
-        #Or do the work
-        else:
-            with torch.no_grad():   #no grad! (obviously)
-
-                #Representation as a (bs,19,8,8) tensor
-                board_repr              = utilities.batched_fen_to_tensor([board_key]).float()
-
-                #Perform copy to static memory in GPU (large speedup if using GPU)
-                static_gpu.copy_(board_repr)
-
-                #Get model probability distrubtion and evaluation of the position
-                probs,eval              = model.forward(static_gpu)
-
-                #Bring it all over to the cpu (Also large speedup due to copy to static variables -no need to reallocate)
-                static_cpu_p.copy_(probs[0],non_blocking=True)
-                static_cpu_v.copy_(eval[0])
-                #Convert to numpy and renormalize
-                revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[utilities.MOVE_TO_I[move] for move in moves])
-                revised_numpy_probs     = utilities.normalize_numpy(revised_numpy_probs,1)
-
-                #Add to dictionary and just return from dictionary
-                lookup_dict[board_key]  = (revised_numpy_probs,static_cpu_v.numpy())
-
-                return lookup_dict[board_key]
-
-
-    #Expand ocurrs for leaf nodes. Checks if this position has been reached before (and at the same depth). If so, it will
-    #   perform the bubble-up for each node and provide even more compute capability. Observed to only kick into effect
-    #   at around 4k explorations
-    def expand(self,board:chess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,static_gpu,static_cpu_p,static_cpu_v,lookup_dict={},common_nodes={}):
-
-        #Fen used as key
-        position_key                    = board.fen()
-
-        #Checks for same node
-        if position_key in common_nodes:
-            common_nodes[position_key].add(self)
-        else:
-            common_nodes[position_key]  = {self}
-
-        #Check end state of node. either return actual outcome or perform computation
-        if board.is_game_over() or board.ply() > max_depth:
-            return self.RESULTS[board.result()]
-
-        #Run "rollout"
-        moves                           = list(board.generate_legal_moves())
-        probabilities,rollout_val       = self.run_rollout(board,chess_model,position_key,lookup_dict,moves,static_gpu,static_cpu_p,static_cpu_v)
-
-        #Create and populate child nodes
-        self.children               = [Node(move,self,probabilities[i],depth+1,not board.turn) for i,move in enumerate(moves)]
-
-        return rollout_val
-
-
     #Passes up the value recieved at the leaf and updates the visit count
     def bubble_up(self,outcome):
-        self.cumulative_score += outcome
+        outcome                 = float(outcome)
+
+        self.cumulative_score   += outcome
         self.n_visits           += 1
 
         if not self.parent is None:
             self.parent.bubble_up(outcome)
-
-
-    #???
-    def data_repr(self):
-        return f"{self.move} vis:{self.n_visits},pvis:{self.parent.n_visits if self.parent else 0},win:{self.n_wins},p:{self.prior_p:.2f},scr:{self.get_score_str()}"
 
 
     #Used once a move is pushed onto the actual game board.

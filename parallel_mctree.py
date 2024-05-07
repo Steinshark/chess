@@ -4,7 +4,7 @@
 
 
 
-from node import Node
+from parallel_node import Node
 import chess
 import time
 import model
@@ -12,10 +12,9 @@ import torch
 import numpy
 import utilities
 from collections import OrderedDict
-from memory_profiler import profile
+#from memory_profiler import profile
 import random
 import settings
-import multiprocessing
 
 
 class MCTree:
@@ -305,7 +304,7 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.uint8,requires_grad=False,device=self.device)
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.int8,requires_grad=False,device=self.device)
         self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
         self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
@@ -341,8 +340,8 @@ class MCTree_Handler:
         self.chess_model            = self.chess_model.float().eval().to(self.device)
 
         #Perform jit tracing
-        #torch.backends.cudnn.enabled= True
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float32)])
+        torch.backends.cudnn.enabled= False
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float32).contiguous()])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -359,7 +358,7 @@ class MCTree_Handler:
             
             #Pass thorugh to model and redistribute to trees
             with torch.no_grad():
-                model_batch:torch.tensor                = utilities.batched_fen_to_tensor([game.pending_fen for game in self.active_trees]).type(torch.uint8)
+                model_batch:torch.tensor                = utilities.batched_fen_to_tensor([game.pending_fen for game in self.active_trees])
                 
                 #Copy to GPU device 
                 self.static_tensorGPU.copy_(model_batch)
@@ -367,7 +366,8 @@ class MCTree_Handler:
                 #Bring them back to CPU
                 self.static_tensorCPU_P.copy_(priors.type(torch.float16),non_blocking=True)
                 self.static_tensorCPU_V.copy_(evals.type(torch.float16))
-                self.static_tensorGPU.type(torch.uint8)
+
+                self.static_tensorGPU.type(torch.int8)
                 torch.cuda.synchronize()
                 
                 #Precompute tree moves 
@@ -385,7 +385,6 @@ class MCTree_Handler:
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
-                    
             #Perform the expansion previously waiting on eval 
             [tree.perform_expansion() for tree in self.active_trees]
 

@@ -174,6 +174,7 @@ class Server(Thread):
 
         #Model items 
         self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu().float()
+        #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -194,7 +195,7 @@ class Server(Thread):
         self.gen                                    = 0
 
         #Telemtry vars
-        self.update_iter                            = 60
+        self.update_iter                            = settings.UPDATE_ITER
         self.next_update_t                          = time.time() + self.update_iter
 
 
@@ -288,12 +289,15 @@ class Server(Thread):
 
         while found_running_game:
             found_running_game                      = False
-
             for client in self.client_managers:
+
                 client.lock                         = True 
                 
                 if client.in_game:
                     found_running_game              = True 
+            
+            #Check if clients died before we caught it
+            self.check_dead_clients()
                 
    
    #Unblocks client managers and lets them generate games 

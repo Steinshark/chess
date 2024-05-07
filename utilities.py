@@ -42,22 +42,22 @@ def fen_processor(fen:str):
 def fen_to_tensor_lite(fen_info:list):
     position,turn,castling  = fen_info
 
-    this_board              = numpy.zeros(shape=(6+6+4+1,8,8),dtype=numpy.float32)
+    this_board              = numpy.zeros(shape=(6+6+4+1,8,8),dtype=numpy.int8)
 
     #Place pieces
     for rank_i,rank in enumerate(reversed(position)):
         for file_i,piece in enumerate(rank): 
             if not piece == "e":
-                this_board[PIECES[piece],rank_i,file_i]	= 1.  
+                this_board[PIECES[piece],rank_i,file_i]	= 1
     
     #Place castling 
-    this_board[-5,:,:]      = 1. if "K" in castling else 0.            
-    this_board[-4,:,:]      = 1. if "Q" in castling else 0.            
-    this_board[-3,:,:]      = 1. if "k" in castling else 0.            
-    this_board[-2,:,:]      = 1. if "q" in castling else 0.            
+    this_board[-5,:,:]      = 1 if "K" in castling else 0            
+    this_board[-4,:,:]      = 1 if "Q" in castling else 0            
+    this_board[-3,:,:]      = 1 if "k" in castling else 0            
+    this_board[-2,:,:]      = 1 if "q" in castling else 0            
 
     #Place turn 
-    this_board[-1,:,:]      = 1. if turn == "w" else -1.
+    this_board[-1,:,:]      = 1 if turn == "w" else -1
 
     return this_board
 
@@ -75,7 +75,7 @@ def batched_fen_to_tensor(fenlist) -> torch.Tensor:
 
     #get numpy lists 
     numpy_boards    = list(map(fen_to_tensor_lite,fen_info_list))
-    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.float16)
+    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.int8)
 
 
     return torch.from_numpy(numpy_boards)
@@ -93,9 +93,9 @@ def normalize(X,temperature=1):
 
 
 #Normalize a list of values assuming X is a numpy array
-def normalize_numpy(X,temperature=1):
+def normalize_numpy(X:numpy.ndarray,temperature=1):
     X           = numpy.power(X,1/temperature)
-
+    #print(X,"\n\n\n")
     return X / numpy.sum(X)
 
 

@@ -303,6 +303,12 @@ class ChessApp:
         self.server                 = Server(address=SERVER_IP,pack_len=self.pack_len)
         self.server.load_models()       
         self.server.start()          
+        #self.server = None
+
+        #Configure space for terminal
+        self.terminal_frame              = ScrolledText(self.window)
+        self.terminal_frame.pack(expand=True,fill='both')
+        self.window.bind_all('<Return>', self.execute_command)
     
 
     #Run this as a worker (Generates training data)
@@ -310,6 +316,13 @@ class ChessApp:
         self.client                     = Client(device=device,address=SERVER_IP,pack_len=self.pack_len)
         self.client.start()
 
+    def execute_command(self,arg2):
+        command     = self.terminal_frame.get("1.0",tk.END).split("\n")
+        while "" in command:
+            command.remove("")
+        command = command[-1]
+        print(f"command is '{command}'")
+        exec(command)
 
     #Setup the app to explore chess games
     def explore_training(self):

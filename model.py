@@ -12,6 +12,7 @@ class ChessModel(torch.nn.Module):
     def __init__(self,repr_ch:int=17,conv_ch:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
 
         super(ChessModel,self).__init__()
+        
         #n_channels is set to 16 currently
         v_conv_n      = conv_ch
         h_conv_n      = conv_ch
