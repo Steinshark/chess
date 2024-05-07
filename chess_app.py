@@ -316,6 +316,7 @@ class ChessApp:
         self.client                     = Client(device=device,address=SERVER_IP,pack_len=self.pack_len)
         self.client.start()
 
+
     def execute_command(self,arg2):
         command     = self.terminal_frame.get("1.0",tk.END).split("\n")
         while "" in command:

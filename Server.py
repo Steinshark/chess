@@ -174,7 +174,7 @@ class Server(Thread):
 
         #Model items 
         self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu().float()
-        #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
+        self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -249,13 +249,13 @@ class Server(Thread):
 
         #Find all dead clients
         hitlist:list[Client_Manager]    = [] 
-        for client in self.clients: 
+        for client in self.client_managers: 
             if not client.running:
                 hitlist.append(client)
 
         #Remove all dead clients
         for dead_client in hitlist:
-            self.clients.remove(dead_client)
+            self.client_managers.remove(dead_client)
             print(f"\t{Color.red}remove client: {dead_client.id}{Color.end}")
 
 

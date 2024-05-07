@@ -10,9 +10,9 @@ DTYPE                                   = torch.float32
 
 #TRAINING SETTINGS 
 MAX_PLY                                 = 160   #(80 move game)
-DATASIZE                                = 1024
-SEARCH_ITERS                            = 400
-PARALLEL_TREES                          = 4
+DATASIZE                                = 2048
+SEARCH_ITERS                            = 500
+PARALLEL_TREES                          = 8
 
 
 #TREE SEARCH SETTINGS
@@ -25,7 +25,7 @@ N_CHESS_MOVES                           = 1968
 
 
 #DISPLAY SETTINGS 
-UPDATE_ITER                             = 30
+UPDATE_ITER                             = 120
 
 
 
