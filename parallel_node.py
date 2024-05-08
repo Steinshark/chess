@@ -45,12 +45,14 @@ class Node:
 
         #precompute val for score computation (good speedup)
         self.precompute         = -1 * self.turn * self.c * self.prior_p
+        #self.computed_score     = self.get_score()
 
 
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
         self.precompute         = -1 * self.turn * self.c * self.prior_p
+        #self.computed_score     = self.get_score()
 
 
     #Make mctree code cleaner by wrapping this
@@ -105,6 +107,7 @@ class Node:
 
         self.cumulative_score   += outcome
         self.n_visits           += 1
+        #self.computed_score     = self.get_score()
 
         if not self.parent is None:
             self.parent.bubble_up(outcome)

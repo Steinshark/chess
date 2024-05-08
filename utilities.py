@@ -9,6 +9,7 @@ import numpy
 import chess 
 import json 
 import os
+import settings 
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
 CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
@@ -75,10 +76,10 @@ def batched_fen_to_tensor(fenlist) -> torch.Tensor:
 
     #get numpy lists 
     numpy_boards    = list(map(fen_to_tensor_lite,fen_info_list))
-    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.int8)
+    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.float32)
 
 
-    return torch.from_numpy(numpy_boards)
+    return torch.from_numpy(numpy_boards).type(settings.DTYPE)
 
 
 #Normalize a list of values 
@@ -98,6 +99,10 @@ def normalize_numpy(X:numpy.ndarray,temperature=1):
     #print(X,"\n\n\n")
     return X / numpy.sum(X)
 
+
+#Normalize a list of values assuming X is a torch tensor 
+def normalize_torch(X:torch.Tensor,temperature=1):
+    return torch.nn.functional.normalize(X,p=1/temperature,dim=0)
 
 #Scheduler for the temperature parameter
 def temp_scheduler(ply:int):

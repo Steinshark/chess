@@ -173,8 +173,8 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu().float()
-        self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
+        self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu()
+        #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -183,7 +183,7 @@ class Server(Thread):
 
         #Training vars
         self.data_pool                              = [] 
-        self.train_every                            = 32768
+        self.train_every                            = settings.TRAIN_EVERY
         self.exp_counter                            = 0
         self.bs                                     = 1024
         self.lr                                     = .0001
@@ -282,7 +282,7 @@ class Server(Thread):
     #   the client_managers have passed them back to the server
     def sync_all_clients(self):
         
-        print(f"\n\t{Color.green}Syncing Clients {[cm.id for cm in self.client_managers]}{Color.end}\n")
+        print(f"\n\t{Color.green}Syncing Clients {[cm.id for cm in self.client_managers]}{Color.end} - {len(self.data_pool)}\n")
         #Lock server 
         self.lock                                   = True 
         found_running_game                          = True 
@@ -404,7 +404,7 @@ class Server(Thread):
             training_dataset                            = trainer.TrainerExpDataset(training_batch)
 
             #Train model on data
-            self.chess_model.train().to(self.device)
+            self.chess_model.train().to(self.device).type(settings.DTYPE)
             trainer.train_model(self.chess_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas)
 
             #Check stockfish baseline 

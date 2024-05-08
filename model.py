@@ -5,6 +5,7 @@
 
 
 import torch
+import settings
 
 class ChessModel(torch.nn.Module):
 
@@ -87,6 +88,8 @@ class ChessModel(torch.nn.Module):
                                                   lin_act(),
                                                   torch.nn.Linear(512,1),
                                                   torch.nn.Tanh())
+
+        self.to(settings.DTYPE)
 
 
     def forward(self,x:torch.Tensor) -> tuple[torch.Tensor,torch.Tensor]:

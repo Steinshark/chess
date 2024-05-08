@@ -8,6 +8,7 @@ import utilities
 from mctree import MCTree
 from torch.utils.data import Dataset,DataLoader
 import multiprocessing
+import settings 
 
 DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -167,9 +168,9 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
             fens,distr,z            = batch
 
             #Transform data to useful things
-            board_repr              = utilities.batched_fen_to_tensor(fens).to(DEVICE).float()
-            z_vals                  = z.unsqueeze(dim=1).float().to(DEVICE)
-            distr                   = distr.float().to(DEVICE)
+            board_repr              = utilities.batched_fen_to_tensor(fens).to(DEVICE).type(settings.DTYPE)
+            z_vals                  = z.unsqueeze(dim=1).type(settings.DTYPE).to(DEVICE)
+            distr                   = distr.type(settings.DTYPE).to(DEVICE)
 
             #Get model out
             probs,evals             = chess_model.forward(board_repr)
@@ -221,11 +222,11 @@ def check_vs_stockfish(chess_model:model.ChessModel):
         for experience in baseline_data[:64]:
 
             #Get data
-            board_repr  = utilities.batched_fen_to_tensor([experience[0]]).to(DEVICE).float()
-            board_eval  = torch.tensor([utilities.clean_eval(experience[1])]).to(DEVICE).float().unsqueeze(dim=0)
+            board_repr  = utilities.batched_fen_to_tensor([experience[0]]).to(DEVICE).type(settings.DTYPE)
+            board_eval  = torch.tensor([utilities.clean_eval(experience[1])]).to(DEVICE).type(settings.DTYPE).unsqueeze(dim=0)
             probs       = [0 for _ in utilities.CHESSMOVES]
             probs[utilities.MOVE_TO_I[chess.Move.from_uci(experience[2])]]    = 1
-            board_prob  = torch.tensor(probs).to(DEVICE).float().unsqueeze(dim=0)
+            board_prob  = torch.tensor(probs).to(DEVICE).type(settings.DTYPE).unsqueeze(dim=0)
 
             #Get model
             prob,eval   = chess_model.forward(board_repr)

@@ -13,6 +13,7 @@ from io import BytesIO
 from threading import Thread
 from parallel_mctree import MCTree_Handler
 import networking
+import settings 
 
 class Client(Thread):
 
@@ -94,7 +95,7 @@ class Client(Thread):
 
 
         #Check model state works
-        self.current_model                      = ChessModel(17,16).float().cpu()
+        self.current_model                      = ChessModel(17,16).cpu().type(settings.DTYPE)
         self.current_model.load_state_dict(self.model_state)
 
 

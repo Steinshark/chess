@@ -304,9 +304,9 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.int8,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.float16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.bfloat16,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.bfloat16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.bfloat16,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.stop_sig               = False
 
@@ -315,7 +315,7 @@ class MCTree_Handler:
     def load_dict(self,state_dict):
 
         #Ensure the model is on the right device, as a 16bit float
-        self.chess_model            = model.ChessModel(17,16).float().to(self.device)
+        self.chess_model            = model.ChessModel(17,16).type(settings.DTYPE).to(self.device)
 
         #If string, convert to state dict
         if isinstance(state_dict,str):
@@ -329,7 +329,7 @@ class MCTree_Handler:
 
         #If model, then replace chess_model outright
         elif isinstance(state_dict,torch.nn.Module):
-            self.chess_model    = state_dict.float().to(self.device)
+            self.chess_model    = state_dict.type(settings.DTYPE).to(self.device)
         
         #Alert if we get strange strange
         else:
@@ -337,11 +337,11 @@ class MCTree_Handler:
             exit()
 
         #After loading, bring back to 16bit float, eval model
-        self.chess_model            = self.chess_model.float().eval().to(self.device)
+        self.chess_model            = self.chess_model.type(settings.DTYPE).eval().to(self.device)
 
         #Perform jit tracing
         torch.backends.cudnn.enabled= False
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.float32).contiguous()])
+        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.bfloat16).contiguous()])
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -362,12 +362,11 @@ class MCTree_Handler:
                 
                 #Copy to GPU device 
                 self.static_tensorGPU.copy_(model_batch)
-                priors,evals                            = self.chess_model(self.static_tensorGPU.type(settings.DTYPE))
-                #Bring them back to CPU
-                self.static_tensorCPU_P.copy_(priors.type(torch.float16),non_blocking=True)
-                self.static_tensorCPU_V.copy_(evals.type(torch.float16))
+                priors,evals                            = self.chess_model(self.static_tensorGPU)
 
-                self.static_tensorGPU.type(torch.int8)
+                #Bring them back to CPU
+                self.static_tensorCPU_P.copy_(priors,non_blocking=True)
+                self.static_tensorCPU_V.copy_(evals)
                 torch.cuda.synchronize()
                 
                 #Precompute tree moves 
@@ -377,14 +376,14 @@ class MCTree_Handler:
                 for prior_probs,evaluation,tree,moves in zip(self.static_tensorCPU_P,self.static_tensorCPU_V,self.active_trees,tree_moves):
 
                     #Pull out only the legal moves
-                    revised_numpy_probs                 = numpy.take(prior_probs.numpy(),moves)
-                    revised_numpy_probs                 = utilities.normalize_numpy(revised_numpy_probs,1)
+                    revised_probs                       = utilities.normalize_torch(prior_probs[moves],1).float().numpy()
 
                     #Add to lookup dict 
-                    self.lookup_dict[tree.curnode.key]  = [revised_numpy_probs,evaluation.item(),0]
+                    self.lookup_dict[tree.curnode.key]  = [revised_probs,evaluation.item(),0]
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
+                    
             #Perform the expansion previously waiting on eval 
             [tree.perform_expansion() for tree in self.active_trees]
 
