@@ -285,6 +285,7 @@ class MCTree:
 #               of the explored leaf with the score
 class MCTree_Handler:
 
+
     def __init__(self,n_parallel=8,device=torch.device('cuda' if torch.cuda.is_available() else "cpu"),max_game_ply=160,n_iters=800):
 
         #Game related variables 
@@ -296,7 +297,7 @@ class MCTree_Handler:
 
         #GPU related variables
         self.device                 = device
-        self.chess_model            = model.ChessModel(17,16).float().to(self.device).eval()
+        self.chess_model            = model.ChessModel(17,16).to(settings.DTYPE).to(self.device).eval()
 
         #Training related variables
         self.dirichlet_a            = .3
@@ -304,9 +305,9 @@ class MCTree_Handler:
         self.dataset                = []
 
         #Static tensor allocations
-        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=torch.bfloat16,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=torch.bfloat16,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=torch.bfloat16,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorGPU       = torch.empty(size=(n_parallel,17,8,8),dtype=settings.DTYPE,requires_grad=False,device=self.device)
+        self.static_tensorCPU_P     = torch.empty(size=(n_parallel,1968),dtype=settings.DTYPE,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_V     = torch.empty(size=(n_parallel,1),dtype=settings.DTYPE,requires_grad=False,device=torch.device('cpu')).pin_memory()
 
         self.stop_sig               = False
 
@@ -341,7 +342,7 @@ class MCTree_Handler:
 
         #Perform jit tracing
         torch.backends.cudnn.enabled= False
-        self.chess_model 			= torch.jit.trace(self.chess_model,[torch.randn((1,17,8,8),device=self.device,dtype=torch.bfloat16).contiguous()])
+        self.chess_model 			= torch.jit.trace(self.chess_model,torch.randn((1,17,8,8),device=self.device,dtype=settings.DTYPE))
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
 
@@ -383,7 +384,7 @@ class MCTree_Handler:
 
                     #Reset tree fen await 
                     tree.pending_fen                    = None 
-                    
+
             #Perform the expansion previously waiting on eval 
             [tree.perform_expansion() for tree in self.active_trees]
 
@@ -487,18 +488,9 @@ class MCTree_Handler:
 #DEBUG puporses
 if __name__ == '__main__':
 
-    # from matplotlib import pyplot as plt
-    # for n_parallel in [1,8,16]:
-    #     times = [] 
-    #     for iters in [100,200,300,400,500,600,800,1200,1600]:
-    t0 = time.time()
-    manager                 = MCTree_Handler(2,max_game_ply=64,n_iters=100)
-    data                    = manager.collect_data(n_exps=256)
-    print(f"{(time.time()-t0)/len(data):.2f}s/move")
-    #         times.append((time.time()-t0)/len(data))
-    #     plt.plot(times,label=f"{n_parallel} simul")
-    
-    # plt.legend()
-    # plt.show()
 
+    t0 = time.time()
+    manager                 = MCTree_Handler(4,max_game_ply=64,n_iters=iter)
+    manager.load_dict('')
+    data                    = manager.collect_data(n_exps=256)
 

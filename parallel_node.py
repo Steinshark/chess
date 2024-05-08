@@ -13,7 +13,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 3
+    c           = 3.
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,
@@ -27,7 +27,7 @@ class Node:
 
         #Postition related vars
         self.move               = move
-        self.turn               = 1 if turn else -1
+        self.turn               = 1. if turn else -1.
         self.top_score          = -1_000_000 if turn else 1_000_000
         self.op                 = self.maximize if turn else self.minimize
         self.depth              = depth                         #depth from root node
@@ -35,24 +35,21 @@ class Node:
         #Tree related vars
         self.parent:Node        = parent
         self.children           = []
-        self.bubble_up_with     = [self]
 
         #Node related vars and such
-        self.n_visits           = 0
+        self.n_visits           = 0.
         self.prior_p            = float(prior_p)
-        self.cumulative_score   = 0
+        self.cumulative_score   = 0.
         self.key                = None
 
         #precompute val for score computation (good speedup)
-        self.precompute         = -1 * self.turn * self.c * self.prior_p
-        #self.computed_score     = self.get_score()
+        self.pre_compute()
 
 
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
         self.precompute         = -1 * self.turn * self.c * self.prior_p
-        #self.computed_score     = self.get_score()
 
 
     #Make mctree code cleaner by wrapping this

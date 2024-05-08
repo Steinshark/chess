@@ -322,7 +322,7 @@ class ChessApp:
         while "" in command:
             command.remove("")
         command = command[-1]
-        print(f"command is '{command}'")
+        print(f"\n\trunning '{command}'\n")
         exec(command)
 
     #Setup the app to explore chess games

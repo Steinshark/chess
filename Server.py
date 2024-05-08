@@ -428,7 +428,7 @@ class Server(Thread):
             
             #Update game params throughout training 
             if self.gen < 4:
-                self.game_settings['n_iters']     = self.game_settings['n_iters'] + 50
+                self.game_settings['n_iters']     = self.game_settings['n_iters'] + 0
 
 
     #Performs the work of checking if a new client is looking
