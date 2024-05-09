@@ -39,6 +39,7 @@ import torch
 from client import Client 
 from server import Server
 import mctree
+from parallel_mctree import MCTree_Handler
 
 #Network related 
 import threading
@@ -143,10 +144,11 @@ class ChessApp:
         self.train_menu         = tk.Menu(self.main_menu,tearoff=False) 
         self.train_menu.add_command(label='Start Server',command=self.run_as_server) 
         self.train_menu.add_command(label='Start Client',command=self.run_as_worker) 
-        self.train_menu.add_command(label='Start Client[4060]',command=lambda: self.run_as_worker(device=torch.device('cuda:0'))) 
-        self.train_menu.add_command(label='Start Client[3060]',command=lambda: self.run_as_worker(device=torch.device('cuda:1'))) 
+        # self.train_menu.add_command(label='Start Client[4060]',command=lambda: self.run_as_worker(device=torch.device('cuda:0'))) 
+        # self.train_menu.add_command(label='Start Client[3060]',command=lambda: self.run_as_worker(device=torch.device('cuda:1'))) 
         self.train_menu.add_command(label='Explore',command=self.explore_training) 
         self.train_menu.add_command(label='Model Config',command=self.setup_model) 
+        self.train_menu.add_command(label='Restore',command=lambda : self.server.restore_state())
         self.train_menu.add_command(label='-')
 
         #Add cascades 
@@ -282,7 +284,8 @@ class ChessApp:
         n_iters             = int(iters_entry.get())
 
         self.model_file     = filename
-        self.n_iters        = n_iters
+        self.n_iters        = int(iters_entry.get())
+        print(f"set n_iters as {self.n_iters    }")
 
         #Create model 
         self.create_model(filename)
@@ -294,7 +297,8 @@ class ChessApp:
 
         #Create model 
         self.cur_file       = fname
-        self.model          = mctree.MCTree(from_fen=self.board.fen())
+        self.model          = MCTree_Handler(1,max_game_ply=200)
+        #self.model          = mctree.MCTree(from_fen=self.board.fen())
         self.model.load_dict(fname)
 
     
@@ -357,12 +361,11 @@ class ChessApp:
         self.model_move_f.pack(expand=True,fill='x')
         self.model_move_l       = Label(self.model_move_f,text='n_iters',width=20)
         self.model_move_l.pack(side='left',fill='x')
-        self.model_move_e       = Entry(self.model_move_f,text=str(self.n_iters),width=25)
+        self.model_move_e       = Entry(self.model_move_f,text='2500',width=25)
+        self.model_move_e.insert(0,str(self.n_iters))
         self.model_move_e.pack(side='left',fill='x')
         self.model_move_b       = Button(self.model_move_f,text='run',command=self.make_model_move)
         self.model_move_b.pack(side='right',fill='x')
-
-
         #Setup click listeners
         self.board_canvas.bind('<Button-1>',self.handle_click)
         self.create_board_img()
@@ -454,12 +457,12 @@ class ChessApp:
         top_move    = None 
         top_count   = 0 
 
-        move_counts     = self.model.evaluate_root(n_iters=int(self.model_move_e.get())).items()
+        move_counts     = self.model.eval(n_iters=int(self.model_move_e.get())).items()
         for move,count in move_counts:
             if count > top_count:
                 top_move    = move 
                 top_count   = count
-        print(move_counts)
+        print(sorted(move_counts,key=lambda x:x[1],reverse=True))
         self.push_move_to_board(top_move)
 
 
@@ -472,8 +475,9 @@ class ChessApp:
             print(f"not a legal move! {move}")
         
         if self.model:
-            self.model.make_move(move)
-            print(f"root now {self.model.root.move}")
+            self.model.make_eval_move(move)
+            print(f"root now {self.model.active_trees[0].root.move}")
+
         self.current_moves  = list(self.board.generate_legal_moves())
         self.create_board_img()
    

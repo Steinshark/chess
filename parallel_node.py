@@ -13,7 +13,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 3.
+    c           = .5
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,

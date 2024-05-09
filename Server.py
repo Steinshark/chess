@@ -175,6 +175,7 @@ class Server(Thread):
         #Model items 
         self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu()
         #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
+        self.gen                                    = 1
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -185,7 +186,7 @@ class Server(Thread):
         self.data_pool                              = [] 
         self.train_every                            = settings.TRAIN_EVERY
         self.exp_counter                            = 0
-        self.bs                                     = 1024
+        self.bs                                     = 2048
         self.lr                                     = .0001
         self.wd                                     = 0
         self.betas                                  = (.5,.9)
@@ -213,6 +214,14 @@ class Server(Thread):
 
             #Update client states
             self.update_clients()
+
+    #Restore state to a known datapool configuration
+    def restore_state(self):
+        
+        with open("exp_save.sos",'r') as readfile:
+            self.data_pool          = json.loads(readfile.read())
+            self.exp_counter        = len(self.data_pool) % self.train_every
+
 
 
     #Implement this to load models
@@ -467,6 +476,8 @@ class Server(Thread):
     def apply_window(self):
 
         #Remove first step after 3 experience gathers
+        if self.train_step == 1:
+            self.data_pool                          = self.data_pool[-self.train_every:]
         if self.train_step == 2:
             self.data_pool                          = self.data_pool[-self.train_every*2:]      
         

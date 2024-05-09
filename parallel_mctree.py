@@ -120,7 +120,7 @@ class MCTree:
 
 
     #Perform an expansion of a leaf node
-    def perform_expansion(self):
+    def perform_expansion(self,eval=False):
 
         node                            = self.curnode
 
@@ -134,13 +134,11 @@ class MCTree:
         moves = list(self.board.generate_legal_moves())
         probs   = revised_probs
 
-        if not probs.shape[0] == len(moves):
-            print(f"descrepency on {utilities.generate_board_key(self.board)} -> {probs.shape,len(moves)}")
         #Generate node children (self.board is in the state of the current node)
         node.children                   = [Node(move,node,revised_probs[i],node.depth+1,not self.board.turn) for i,move in enumerate(self.board.generate_legal_moves())]
         
         #If this is the root, then apply dirichlet noise to encourage exploration
-        if node == self.root:
+        if node == self.root and not eval:
             self.apply_dirichlet()
     
         #Check in common nodes
@@ -149,6 +147,7 @@ class MCTree:
         else:
             self.common_nodes[node.key] = set([node])
 
+        #print(f"\tval={evaluation:.4f}")
         #Propogate value up tree
         [common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
         
@@ -157,6 +156,8 @@ class MCTree:
             self.board.pop()
 
         self.curdepth = 0
+
+       #input(f"{self.get_scores()}\n\n")
 
 
     #Pick the top move.
@@ -179,7 +180,14 @@ class MCTree:
 
         return top_move
     
+    def get_moves(self):
+        return sorted({c.move.uci():c.n_visits for c in self.root.children}.items(key=lambda x:x[1]),reverse=True)
+    
+    def get_scores(self):
 
+        return sorted({c.move.uci():f"{c.get_score():.4f}" for c in self.root.children}.items(),key=lambda x:float(x[1]),reverse=True)
+    
+    
     #Applies the given move to the root
     #   and descends to corresponding node.
     #   Keeps prior calculations down this line
@@ -273,6 +281,40 @@ class MCTree:
         
         return
 
+
+    #For making evals
+    def perform_eval_iter(self):
+
+         #Get to bottom of tree via traversal algorithm
+       # print(self.get_scores())
+        curnode                             = self.root
+        self.curdepth                       = 0
+        while not curnode.is_leaf():
+            curnode                         = curnode.pick_best_child()
+            self.board.push(curnode.move)
+            self.curdepth                   += 1
+
+        #Set curnode key 
+        curnode.key                         = utilities.generate_board_key(self.board)
+        
+        #Check if gameover node and update node in tree 
+        if self.board.is_game_over():
+            game_result                     = Node.RESULTS[self.board.result()]
+            self.perform_endgame_expansion(curnode,game_result)
+            self.perform_eval_iter()
+
+        #Else check if this board already has a value
+        elif curnode.key in self.lookup_dict:
+            self.curnode:Node           = curnode
+            self.perform_expansion()
+            self.perform_eval_iter()
+        
+        #Else queue up for a model evaluation
+        else:
+            self.curnode:Node           = curnode
+            self.pending_fen            = self.board.fen()
+            self.awaiting_eval          = True
+    
 
 #Creates an instance of a Monte-Carlo style Tree
 #   to develop an evaluation of a given position, the tree
@@ -483,8 +525,69 @@ class MCTree_Handler:
         del self.static_tensorCPU_V
         
         return
+    
 
+    def eval(self,n_iters=3000):
 
+        with torch.no_grad():
+            while self.active_trees[0].root.n_visits < n_iters:
+
+                self.active_trees[0].perform_eval_iter()
+
+                model_batch:torch.tensor                = utilities.batched_fen_to_tensor([game.pending_fen for game in self.active_trees])
+                
+                #Copy to GPU device 
+                self.static_tensorGPU.copy_(model_batch)
+                priors,evals                            = self.chess_model(self.static_tensorGPU)
+
+                #Bring them back to CPU
+                self.static_tensorCPU_P.copy_(priors,non_blocking=True)
+                self.static_tensorCPU_V.copy_(evals)
+                torch.cuda.synchronize()
+                
+                #Precompute tree moves 
+                tree_moves                              = [[utilities.MOVE_TO_I[move] for move in tree.board.generate_legal_moves()] for tree in self.active_trees]
+                
+                #Process all tree probabilities to zero out all non-legal moves
+                for prior_probs,evaluation,tree,moves in zip(self.static_tensorCPU_P,self.static_tensorCPU_V,self.active_trees,tree_moves):
+
+                    #Pull out only the legal moves
+                    revised_probs                       = utilities.normalize_torch(prior_probs[moves],1).float().numpy()
+
+                    #Add to lookup dict 
+                    self.lookup_dict[tree.curnode.key]  = [revised_probs,evaluation.item(),0]
+
+                    #Reset tree fen await 
+                    tree.pending_fen                    = None 
+
+                self.active_trees[0].perform_expansion()
+        
+        return {n.move:n.n_visits for n in self.active_trees[0].root.children}
+
+        #For pushing eval moves
+    
+
+    def make_eval_move(self,move:chess.Move):
+        
+        tree = self.active_trees[0]
+
+        if tree.root.n_visits == 0:
+            self.eval(1)
+
+        #Push move 
+        tree.board.push(move)
+
+        #Cheeck outcome
+        if tree.board.is_game_over() or tree.board.ply() > self.max_game_ply:
+            return Node.RESULTS[tree.board.result()]
+
+        #Update tree 
+        tree.chosen_branch  = tree.root.traverse_to_child(move)
+        del tree.root 
+        tree.root           = tree.chosen_branch
+        tree.curdepth       = 0 
+        return 
+            
 #DEBUG puporses
 if __name__ == '__main__':
 
