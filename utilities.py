@@ -101,7 +101,7 @@ def normalize_numpy(X:numpy.ndarray,temperature=1):
 
 
 #Normalize a list of values assuming X is a torch tensor 
-def normalize_torch(X:torch.Tensor,temperature=1):
+def normalize_torch(X:torch.Tensor,temperature=1)->torch.Tensor:
     return torch.nn.functional.normalize(X,p=1/temperature,dim=0)
 
 #Scheduler for the temperature parameter

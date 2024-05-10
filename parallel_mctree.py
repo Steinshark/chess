@@ -15,7 +15,7 @@ from collections import OrderedDict
 #from memory_profiler import profile
 import random
 import settings
-
+import copy
 
 class MCTree:
 
@@ -37,7 +37,6 @@ class MCTree:
         #   set these to 0 to perform an actual evaluation.
         self.dirichlet_a                    = alpha
         self.dirichlet_e                    = epsilon
-
         #Keep track of prior explored nodes
         self.lookup_dict                    = lookup_dict
         self.common_nodes:dict[Node,set]    = {}
@@ -149,7 +148,8 @@ class MCTree:
 
         #print(f"\tval={evaluation:.4f}")
         #Propogate value up tree
-        [common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
+        node.bubble_up(evaluation)
+        #[common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
         
         #Unpop gameboard 
         for _ in range(self.curdepth):
@@ -169,8 +169,13 @@ class MCTree:
         if greedy:
             top_move                    = None 
             top_visits                  = 0 
+            
+            #Copy the list, then shuffle it to introduce random tie breaks
+            node_children               = copy.copy(self.root.children)
+            random.shuffle(node_children)
 
-            for child in self.root.children:
+            #top_move                    = max(node_children.items(),key=)
+            for child in node_children:
                 if child.n_visits > top_visits:
                     top_move            = child.move 
                     top_visits          = child.n_visits
@@ -180,9 +185,11 @@ class MCTree:
 
         return top_move
     
+
     def get_moves(self):
         return sorted({c.move.uci():c.n_visits for c in self.root.children}.items(key=lambda x:x[1]),reverse=True)
     
+
     def get_scores(self):
 
         return sorted({c.move.uci():f"{c.get_score():.4f}" for c in self.root.children}.items(),key=lambda x:float(x[1]),reverse=True)
@@ -278,7 +285,6 @@ class MCTree:
         for i,child in enumerate(self.root.children):
             child.prior_p                   = (dirichlet[i] * self.dirichlet_e) + ((1-self.dirichlet_e) * child.prior_p)
             child.pre_compute()
-        
         return
 
 
@@ -342,8 +348,6 @@ class MCTree_Handler:
         self.chess_model            = model.ChessModel(17,16).to(settings.DTYPE).to(self.device).eval()
 
         #Training related variables
-        self.dirichlet_a            = .3
-        self.dirichlet_e            = .2
         self.dataset                = []
 
         #Static tensor allocations
@@ -419,7 +423,11 @@ class MCTree_Handler:
                 for prior_probs,evaluation,tree,moves in zip(self.static_tensorCPU_P,self.static_tensorCPU_V,self.active_trees,tree_moves):
 
                     #Pull out only the legal moves
-                    revised_probs                       = utilities.normalize_torch(prior_probs[moves],1).float().numpy()
+                    revised_probs:numpy.ndarray         = utilities.normalize_torch(prior_probs[moves],1).float().numpy()
+
+                    #Check for loss of data and distribute evenly
+                    if revised_probs.sum() == 0:
+                        revised_probs                   = utilities.normalize_numpy(numpy.ones(len(revised_probs)))
 
                     #Add to lookup dict 
                     self.lookup_dict[tree.curnode.key]  = [revised_probs,evaluation.item(),0]
@@ -593,7 +601,9 @@ if __name__ == '__main__':
 
 
     t0 = time.time()
-    manager                 = MCTree_Handler(4,max_game_ply=64,n_iters=iter)
+    manager                 = MCTree_Handler(4,max_game_ply=300,n_iters=450)
     manager.load_dict('')
-    data                    = manager.collect_data(n_exps=256)
+    data                    = manager.collect_data(n_exps=1024)
+    print("\n".join( [str(sorted(x[1].items(),key=lambda x: x[1],reverse=True)) for x in data[:4] ]))
+    print(f"{(time.time()-t0)/len(data):.2f}s/move")
 

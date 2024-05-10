@@ -6,19 +6,19 @@ import torch
 #MODEL SETTINGS 
 REPR_CH                                 = 17 
 CONV_CH                                 = 16
-DTYPE                                   = torch.float32
+DTYPE                                   = torch.bfloat16
 
 #TRAINING SETTINGS 
-MAX_PLY                                 = 200   #(80 move game)
+MAX_PLY                                 = 300   #(150 move game)
 DATASIZE                                = 2048
-SEARCH_ITERS                            = 800
-PARALLEL_TREES                          = 6
+SEARCH_ITERS                            = 450
+PARALLEL_TREES                          = 4
 TRAIN_EVERY                             = 131072
 
 
 #TREE SEARCH SETTINGS
-DIR_A                                   = .35
-DIR_E                                   = .25
+DIR_A                                   = .3
+DIR_E                                   = .3
 
 
 #CHESS SETTINGS                 

@@ -13,7 +13,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = .5
+    c           = 4.
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,
@@ -26,21 +26,21 @@ class Node:
     def __init__(self,move:chess.Move,parent,prior_p:float,depth,turn:bool):
 
         #Postition related vars
-        self.move               = move
-        self.turn               = 1. if turn else -1.
-        self.top_score          = -1_000_000 if turn else 1_000_000
-        self.op                 = self.maximize if turn else self.minimize
-        self.depth              = depth                         #depth from root node
+        self.move                   = move
+        self.turn                   = 1. if turn else -1.
+        self.top_score              = -1_000_000 if turn else 1_000_000
+        self.op                     = self.maximize if turn else self.minimize
+        self.depth                  = depth
 
         #Tree related vars
-        self.parent:Node        = parent
-        self.children           = []
+        self.parent:Node            = parent
+        self.children:list[Node]    = []
 
         #Node related vars and such
-        self.n_visits           = 0.
-        self.prior_p            = float(prior_p)
-        self.cumulative_score   = 0.
-        self.key                = None
+        self.n_visits               = 0.
+        self.prior_p                = float(prior_p)
+        self.cumulative_score       = 0.
+        self.key                    = None
 
         #precompute val for score computation (good speedup)
         self.pre_compute()
@@ -49,7 +49,7 @@ class Node:
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
-        self.precompute         = -1 * self.turn * self.c * self.prior_p
+        self.precompute         = -1 * self.turn * self.prior_p * self.c
 
 
     #Make mctree code cleaner by wrapping this
@@ -90,7 +90,7 @@ class Node:
 
     #Score is evaluated in a revised PUCT manner. Uses average result as well as exploration tendency and move counts
     def get_score(self):
-        return (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
+        return (self.cumulative_score / (self.n_visits+1)) + self.precompute *(math.sqrt(self.parent.n_visits)/(self.n_visits+1))
 
 
     #Return just the q_score (for training)
@@ -103,7 +103,7 @@ class Node:
         outcome                 = float(outcome)
 
         self.cumulative_score   += outcome
-        self.n_visits           += 1
+        self.n_visits           += 1.
         #self.computed_score     = self.get_score()
 
         if not self.parent is None:
