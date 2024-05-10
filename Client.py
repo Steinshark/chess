@@ -150,6 +150,7 @@ class Client(Thread):
     #Closes down the socket and everything else
     def shutdown(self):
         print(f"Closing socket")
+        networking.send_bytes(self.client_socket,"kill".encode(),self.pack_len)
         self.running = False
         self.mctree_handler.stop_sig     = True
         self.client_socket.close()

@@ -135,6 +135,9 @@ class Client_Manager(Thread):
 
         bytes_message                       = networking.recieve_bytes(self.client_socket,self.pack_len)
 
+        #Check if 'kill' signal
+        if bytes_message.decode() == 'kill':
+            self.shutdown()
         experience_set                      = json.loads(bytes_message.decode())
 
         for exp in experience_set:
