@@ -36,8 +36,8 @@ from pprint import pp
 
 #ML related
 import torch 
-from client import Client 
-from server import Server
+from Client import Client 
+from Server import Server
 import mctree
 from parallel_mctree import MCTree_Handler
 
