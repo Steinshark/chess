@@ -121,6 +121,8 @@ class Client(Thread):
         #Generate data 
         t0                      = time.time()
         training_data           = self.mctree_handler.collect_data(n_exps=n_experiences)
+        if len(training_data) == 0:
+            exit()
         print(f"\t\t{Color.tan}{(time.time()-t0)/len(training_data):.2f}s/move{Color.end}")
         
         #Upload data
