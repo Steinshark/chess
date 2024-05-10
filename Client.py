@@ -155,3 +155,4 @@ class Client(Thread):
         self.mctree_handler.stop_sig     = True
         self.client_socket.close()
         print(f"joined and exiting")
+        exit()
