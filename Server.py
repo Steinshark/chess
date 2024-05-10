@@ -136,7 +136,7 @@ class Client_Manager(Thread):
         bytes_message                       = networking.recieve_bytes(self.client_socket,self.pack_len)
 
         #Check if 'kill' signal
-        if bytes_message.decode() == 'kill':
+        if not bytes_message or bytes_message.decode() == 'kill':
             self.shutdown()
         experience_set                      = json.loads(bytes_message.decode())
 
@@ -155,6 +155,7 @@ class Client_Manager(Thread):
     def shutdown(self):
         self.running                = False
         self.client_socket.close()
+        exit()
 
 
 #Handles the server (Aka in charge of the training algorithm)
