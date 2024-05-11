@@ -11,7 +11,7 @@ DTYPE                                   = torch.bfloat16
 #TRAINING SETTINGS 
 MAX_PLY                                 = 300   #(150 move game)
 DATASIZE                                = 2048
-SEARCH_ITERS                            = 850
+SEARCH_ITERS                            = 500
 PARALLEL_TREES                          = 8
 TRAIN_EVERY                             = 131072*2
 
