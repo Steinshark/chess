@@ -81,7 +81,7 @@ class TrainerExpDataset(Dataset):
                 self.distros.append(distribution)
                 self.z_vals.append((game_outcome+q_value)/2)
             except KeyError:
-                pass
+                print(f"key err??")
 
         self.distros    = list(map(utilities.movecount_to_prob,self.distros))
 
@@ -138,7 +138,7 @@ class stockfishExpDataSet(Dataset):
 
 
 
-def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=.0001,wd=0,betas=(.5,.75),n_epochs=1):
+def train_model(chess_model:model.ChessModel,dataset:TrainerExpDataset,bs=1024,lr=.0001,wd=0,betas=(.5,.75),n_epochs=1):
 
     #Get data items together
     dataloader      = DataLoader(dataset,batch_size=bs,shuffle=True)
@@ -169,11 +169,11 @@ def train_model(chess_model:model.ChessModel,dataset:chessExpDataSet,bs=1024,lr=
 
             #Transform data to useful things
             board_repr              = utilities.batched_fen_to_tensor(fens).to(DEVICE).type(settings.DTYPE)
-            z_vals                  = z.unsqueeze(dim=1).type(settings.DTYPE).to(DEVICE)
-            distr                   = distr.type(settings.DTYPE).to(DEVICE)
+            z_vals                  = z.unsqueeze(dim=1).to(DEVICE).type(settings.DTYPE)
+            distr                   = distr.to(DEVICE).type(settings.DTYPE)
 
             #Get model out
-            probs,evals             = chess_model.forward(board_repr)
+            probs,evals             = chess_model(board_repr)
 
             #Get losses
             p_loss                  = loss_fn_p(probs,distr)

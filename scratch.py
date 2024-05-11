@@ -5,8 +5,9 @@ import random
 import numpy 
 
 #load current model 
-cmodel  = model.ChessModel(17,16)
-cmodel.load_state_dict(torch.load("generations/gen_1.dict"))
+cmodel  = model.ChessModel(17,16).bfloat16()
+cmodel.load_state_dict(torch.load("generations/gen_24.dict"))
+cmodel.float()
 cmodel.eval()
 cmodel 	= torch.jit.trace(cmodel,torch.randn((1,17,8,8)))
 cmodel 	= torch.jit.freeze(cmodel)

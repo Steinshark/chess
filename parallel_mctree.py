@@ -599,11 +599,28 @@ class MCTree_Handler:
 #DEBUG puporses
 if __name__ == '__main__':
 
+    import sys 
+    sys.setrecursionlimit(10000)
 
+    from matplotlib import pyplot as plt
     t0 = time.time()
-    manager                 = MCTree_Handler(4,max_game_ply=300,n_iters=450)
+    manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
     manager.load_dict('')
-    data                    = manager.collect_data(n_exps=1024)
-    print("\n".join( [str(sorted(x[1].items(),key=lambda x: x[1],reverse=True)) for x in data[:4] ]))
-    print(f"{(time.time()-t0)/len(data):.2f}s/move")
+    movecounts  = {}
+    for _ in range(250):
+        mc                  = sorted({m.uci():n for m,n in manager.eval(1600).items()}.items(),key=lambda x: x[1],reverse=True)
+        move =   mc[0][0]
+        if move in movecounts:
+            movecounts[move] += 1
+        else:
+            movecounts[move] = 1
+
+        del manager.active_trees[0]
+
+        manager.active_trees.append(MCTree(0,manager.max_game_ply,manager.n_iters,lookup_dict=manager.lookup_dict))
+        #print(  str(    mc) )
+    
+    plt.bar(list(movecounts.keys()),list(movecounts.values()))
+    plt.show()
+    #print(f"{(time.time()-t0)/len(data):.2f}s/move")
 
