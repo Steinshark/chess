@@ -107,15 +107,16 @@ if __name__ == "__main__":
     torch.jit.enable_onednn_fusion(True)
     torch.backends.cudnn.enabled= True
     m       = ChessModel(17).eval().to(dev).type(ty)
-    m = torch.jit.trace(m, [torch.randn(size=(16,17,8,8),device=dev,dtype=ty)])
-    # Invoking torch.jit.freeze
-    m = torch.jit.freeze(m)
+    # m = torch.jit.trace(m, [torch.randn(size=(16,17,8,8),device=dev,dtype=ty)])
+    # # Invoking torch.jit.freeze
+    # m = torch.jit.freeze(m)
 
-    with torch.no_grad():
-        t0  = time.time()
-        for _ in range(16384):
-            inv     = torch.randn(size=(16,17,8,8),device=dev,dtype=ty,requires_grad=False)
+    # with torch.no_grad():
+    #     t0  = time.time()
+    #     for _ in range(16384):
+    #         inv     = torch.randn(size=(16,17,8,8),device=dev,dtype=ty,requires_grad=False)
 
-            p,v       = m.forward(inv)
+    #         p,v       = m.forward(inv)
 
-        print(f"out is {p.shape},{v.shape} in {(time.time()-t0):.3f}s")
+    #     print(f"out is {p.shape},{v.shape} in {(time.time()-t0):.3f}s")
+    print(sum([p.numel() for p in m.parameters()]))
