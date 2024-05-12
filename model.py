@@ -54,6 +54,7 @@ class ChessModel(torch.nn.Module):
 
         self.layer4         = ChessBlock(16+16+32,16,16,32)
 
+
         #Standard layers    in=(bsx64x8x8)
         self.layer5         = torch.nn.Sequential(torch.nn.Conv2d(16+16+32,64,3,1,0,bias=False),
                                                   torch.nn.BatchNorm2d(64),
