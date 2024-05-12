@@ -219,6 +219,7 @@ class Server(Thread):
             #Update client states
             self.update_clients()
 
+
     #Restore state to a known datapool configuration
     def restore_state(self):
         
@@ -232,6 +233,7 @@ class Server(Thread):
     def load_models(self):
         
         pass
+
 
     #Creates the server socket and sets 
     #   various server settings
