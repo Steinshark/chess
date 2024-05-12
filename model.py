@@ -38,21 +38,10 @@ class ChessBlock(torch.nn.Module):
 class ChessModel(torch.nn.Module):
 
 
-    def __init__(self,repr_ch:int=17,conv_ch:int=16,lin_act=torch.nn.PReLU,conv_act=torch.nn.PReLU,all_prelu=False,p=.5):
+    def __init__(self,repr_ch:int=17,p=.5):
 
         super(ChessModel,self).__init__()
         
-        #n_channels is set to 16 currently
-        v_conv_n      = conv_ch
-        h_conv_n      = conv_ch
-        f_conv_n      = conv_ch//2
-
-        inter_sum     = v_conv_n+h_conv_n+f_conv_n
-
-        if "PReLU" in str(conv_act) and all_prelu:
-            act_kwargs      = {'num_parameters':v_conv_n}
-        else:
-            act_kwargs      = {} 
 
 
 
@@ -79,7 +68,7 @@ class ChessModel(torch.nn.Module):
         #Final Layer        in=(bsx32x6x6)
         self.layer7         = torch.nn.Sequential(torch.nn.Conv2d(128,256,3,1,0,bias=False),
                                                   torch.nn.BatchNorm2d(256),
-                                                  conv_act(),
+                                                  torch.nn.PReLU(256),
                                                   torch.nn.Flatten(start_dim=1))
 
 
@@ -90,7 +79,7 @@ class ChessModel(torch.nn.Module):
         #V
         self.val_head       = torch.nn.Sequential(torch.nn.Linear(256*2*2,256),
                                                   torch.nn.Dropout(p=p),
-                                                  lin_act(),
+                                                  torch.nn.PReLU(),
                                                   torch.nn.Linear(256,1),
                                                   torch.nn.Tanh())
 
@@ -114,17 +103,18 @@ class ChessModel(torch.nn.Module):
 if __name__ == "__main__":
     import time
     dev     = torch.device('cuda')
-    torch.jit.enable_onednn_fusion(False)
+    ty      = torch.bfloat16
+    torch.jit.enable_onednn_fusion(True)
     torch.backends.cudnn.enabled= True
-    m       = ChessModel(17).float().eval().to(dev)
-    m = torch.jit.trace(m, [torch.randn(size=(16,17,8,8),device=dev,dtype=torch.float32)])
+    m       = ChessModel(17).eval().to(dev).type(ty)
+    m = torch.jit.trace(m, [torch.randn(size=(16,17,8,8),device=dev,dtype=ty)])
     # Invoking torch.jit.freeze
     m = torch.jit.freeze(m)
 
     with torch.no_grad():
         t0  = time.time()
-        for _ in range(800):
-            inv     = torch.randn(size=(16,17,8,8),device=dev,dtype=torch.float32,requires_grad=False)
+        for _ in range(16384):
+            inv     = torch.randn(size=(16,17,8,8),device=dev,dtype=ty,requires_grad=False)
 
             p,v       = m.forward(inv)
 
