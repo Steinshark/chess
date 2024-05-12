@@ -12,55 +12,6 @@ import settings
 
 DEVICE      = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class chessExpDataSet(Dataset):
-
-    def __init__(self,filepath:str,limit=1_000_000,percent=1.0):
-
-        self.fens           = []
-        self.distros        = []
-        self.z_vals         = []
-        self.data           = []
-
-
-        filelist        = os.listdir(filepath)
-        random.shuffle(filelist)
-
-        for filename in filelist[:limit]:
-
-            #Fix to full path
-            filename    = os.path.join(filepath,filename)
-
-            #Load game
-            with open(filename,"r") as file:
-                game_data   = json.loads(file.read())
-
-                for item in game_data:
-                    fen             = item[0]
-                    distribution    = item[1]
-                    game_outcome    = item[2]
-                    q_value         = item[3]
-
-                    self.fens.append(fen)
-                    self.distros.append(distribution)
-                    self.z_vals.append((game_outcome+q_value)/2)        #TRAIN ON AVERAGE
-
-        self.distros    = list(map(utilities.movecount_to_prob,self.distros))
-
-        self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
-
-        #Shuffle data
-        random.shuffle(self.data)
-
-        #select percent
-        self.data       = random.choices(self.data,k=int(len(self.data)*percent))
-
-    def __getitem__(self,i:int):
-        item    = self.data[i]
-        return item[0],item[1],item[2]
-
-    def __len__(self):
-        return len(self.data)
-
 
 class TrainerExpDataset(Dataset):
 
@@ -68,32 +19,72 @@ class TrainerExpDataset(Dataset):
         self.fens           = []
         self.distros        = []
         self.z_vals         = []
+        self.ply            = [] 
 
         for item in experiences:
 
-            try:
-                fen             = item[0]
-                distribution    = item[1]
-                game_outcome    = item[2]
-                q_value         = item[3]
 
-                self.fens.append(fen)
-                self.distros.append(distribution)
-                self.z_vals.append((game_outcome+q_value)/2)
-            except KeyError:
-                print(f"key err??")
+            fen             = item[0]
+            distribution    = item[1]
+            game_outcome    = item[2]
+            q_value         = item[3]
+            ply             = item[4]
+
+            self.fens.append(fen)
+            self.distros.append(distribution)
+            self.z_vals.append((game_outcome+q_value)/2)
+            self.ply.append(ply)
+
 
         self.distros    = list(map(utilities.movecount_to_prob,self.distros))
 
-        self.data       = [(self.fens[i],self.distros[i],self.z_vals[i]) for i in range(len(self.fens))]
+        self.data       = [(self.fens[i],self.distros[i],self.z_vals[i],self.ply[i]) for i in range(len(self.fens))]
+
+        self.combine_repeats()
+
 
     def __getitem__(self,i:int):
         item    = self.data[i]
-        return item[0],item[1],item[2]
+        return item[0],item[1],item[2],item[3]
+
 
     def __len__(self):
         return len(self.data)
 
+
+    def combine_repeats(self):  
+
+        #Get counts 
+        fens                            = [x[0] for x in self.data]
+        counts                          = {data[0]:[x[0] for x in self.data].count(data[0]) for data in self.data}
+        repeat_counts                   = {fen:0 for fen in self.fens}
+        
+        #fen-> [fen,distr,z,ply]
+        newdata                         = {}
+
+        # exit()
+        #Combine all the same positions 
+        for fen,distr,z_val,ply in zip(self.fens,self.distros,self.z_vals,self.ply):
+
+
+            #Add if first time 
+            if not fen in newdata:
+                newdata[fen] = [fen,distr,z_val,ply]
+
+            #Add proportionally to inverse repeat count 
+            else:
+                if random.random() < 3/counts[fen]:
+                    repeat_counts[fen] += 1
+                    prev_data           = newdata[fen]
+
+                    new_distr           = utilities.normalize_torch(prev_data[1] + distr)
+
+                    new_z               = (prev_data[2] + z_val) / 2 
+
+                    newdata[fen]        = [fen,new_distr,new_z,ply]
+
+        self.data                       = list(newdata.values())
+        
 
 class stockfishExpDataSet(Dataset):
 
@@ -165,7 +156,7 @@ def train_model(chess_model:model.ChessModel,dataset:TrainerExpDataset,bs=1024,l
             chess_model.zero_grad()
 
             #Unpack data
-            fens,distr,z            = batch
+            fens,distr,z,ply        = batch
 
             #Transform data to useful things
             board_repr              = utilities.batched_fen_to_tensor(fens).to(DEVICE).type(settings.DTYPE)
@@ -219,7 +210,7 @@ def check_vs_stockfish(chess_model:model.ChessModel):
 
     with torch.no_grad():
 
-        for experience in baseline_data[:64]:
+        for experience in baseline_data[:256]:
 
             #Get data
             board_repr  = utilities.batched_fen_to_tensor([experience[0]]).to(DEVICE).type(settings.DTYPE)
@@ -380,24 +371,5 @@ def perform_training(chess_model):
 
 
 if __name__ == '__main__':
-
-
-    #Good model
-    model1          = model.ChessModel(17,16,act=torch.nn.ReLU).cuda()
-
-    #Bad model
-    model2         = model.ChessModel(17,16,act=torch.nn.GELU).cuda()
-
-
-    p1,l1           = check_vs_stockfish(model1)
-    p2,l2           = check_vs_stockfish(model2)
-
-    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
-
-    pls,vls     = train_model(model1,chessExpDataSet("C:/gitrepos/chess/data4",percent=.4),4096,.0002,wd=.01,n_epochs=4)
-
-    p1,l1           = check_vs_stockfish(model1)
-    p2,l2           = check_vs_stockfish(model2)
-
-    print(f"model1 v:{l1:.4f}\nmodel2 v:{l2:4f}")
-    exit()
+    dataset         = json.loads(open("datapool.txt",'r').read())
+    ds              = TrainerExpDataset(dataset)

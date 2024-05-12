@@ -191,7 +191,7 @@ class MCTree:
         post_probs                  = {node.move.uci():node.n_visits for node in self.root.children}
         q_value                     = self.root.get_q_score() 
         position_eval               = 0
-        datapoint                   = (board_fen,post_probs,position_eval,q_value)
+        datapoint                   = (board_fen,post_probs,position_eval,q_value,self.board.ply())
         self.game_datapoints.append(datapoint)
 
         #sample fomr distribution if ply < 20
@@ -206,7 +206,7 @@ class MCTree:
         #check gameover
         if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
             self.game_result        = Node.RESULTS[self.board.result()]
-            self.game_datapoints    = [(item[0],item[1],self.game_result,item[3]) for item in self.game_datapoints]
+            self.game_datapoints    = [(item[0],item[1],self.game_result,item[3],item[4]) for item in self.game_datapoints]
             self.end_time           = time.time()
             self.run_time           = self.end_time - self.start_time
             del self.root

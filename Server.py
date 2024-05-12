@@ -428,8 +428,8 @@ class Server(Thread):
             self.lr                                     *= self.lr_mult
 
             #Place model back on cpu, in eval mode, and get state dict
-            self.chess_model.eval().cpu()
-            self.model_dict                            = self.chess_model.state_dict()
+            self.chess_model                            = self.chess_model.eval().cpu()
+            self.model_dict                             = self.chess_model.state_dict()
 
             #Save models 
             if not os.path.exists("generations/"):
