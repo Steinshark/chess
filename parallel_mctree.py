@@ -39,7 +39,6 @@ class MCTree:
         self.dirichlet_e                    = epsilon
         #Keep track of prior explored nodes
         self.lookup_dict                    = lookup_dict
-        self.common_nodes:dict[Node,set]    = {}
         self.gpu_blocking                   = False
         
         #Multithread vars 
@@ -101,14 +100,9 @@ class MCTree:
 
     #Perform expansion given that the node is an endstate 
     def perform_endgame_expansion(self,node:Node,evaluation:float):
-        #Check in common nodes
-        if node.key in self.common_nodes:
-            self.common_nodes[node.key].add(node)
-        else:
-            self.common_nodes[node.key]     = set([node])
 
         #Propogate value up tree
-        [common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
+        node.bubble_up(evaluation)
         
         #Unpop gameboard 
         for _ in range(self.curdepth):
@@ -130,8 +124,6 @@ class MCTree:
         self.lookup_dict[node.key][-1]  += 1
 
 
-        moves = list(self.board.generate_legal_moves())
-        probs   = revised_probs
 
         #Generate node children (self.board is in the state of the current node)
         node.children                   = [Node(move,node,revised_probs[i],node.depth+1,not self.board.turn) for i,move in enumerate(self.board.generate_legal_moves())]
@@ -140,16 +132,10 @@ class MCTree:
         if node == self.root and not eval:
             self.apply_dirichlet()
     
-        #Check in common nodes
-        if node.key in self.common_nodes:
-            self.common_nodes[node.key].add(node)
-        else:
-            self.common_nodes[node.key] = set([node])
 
-        #print(f"\tval={evaluation:.4f}")
+
         #Propogate value up tree
         node.bubble_up(evaluation)
-        #[common_node.bubble_up(evaluation) for common_node in self.common_nodes[node.key]]
         
         #Unpop gameboard 
         for _ in range(self.curdepth):
@@ -157,7 +143,6 @@ class MCTree:
 
         self.curdepth = 0
 
-       #input(f"{self.get_scores()}\n\n")
 
 
     #Pick the top move.
@@ -269,7 +254,6 @@ class MCTree:
     #Remove the memory that was allocated on the CPU, GPU
     def cleanup(self):
 
-        del self.common_nodes
         del self.game_datapoints
         
 
