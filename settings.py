@@ -38,5 +38,5 @@ UPDATE_ITER                             = 120
 
 
 #USEFUL COMBINATIONS OF SETTINGS (dont touch, these will be automatic. Only change the above settings)
-MODEL_KWARGS                            = {"in_ch":REPR_CH}
+MODEL_KWARGS                            = {"repr_ch":REPR_CH}
 INPUT_SHAPE                             = (1,REPR_CH,8,8)
