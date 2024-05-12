@@ -177,7 +177,7 @@ class Server(Thread):
         self.lock                                   = False
 
         #Model items 
-        self.chess_model                            = ChessModel(settings.REPR_CH,settings.CONV_CH).eval().cpu()
+        self.chess_model                            = ChessModel(**settings.MODEL_KWARGS).eval().cpu()
         #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
         self.gen                                    = 1
         self.model_dict                             = self.chess_model.state_dict()

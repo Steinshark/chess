@@ -345,7 +345,7 @@ class MCTree_Handler:
 
         #GPU related variables
         self.device                 = device
-        self.chess_model            = model.ChessModel(17,16).to(settings.DTYPE).to(self.device).eval()
+        self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).to(settings.DTYPE).to(self.device).eval()
 
         #Training related variables
         self.dataset                = []
@@ -362,7 +362,7 @@ class MCTree_Handler:
     def load_dict(self,state_dict):
 
         #Ensure the model is on the right device, as a 16bit float
-        self.chess_model            = model.ChessModel(17,16).type(settings.DTYPE).to(self.device)
+        self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).type(settings.DTYPE).to(self.device)
 
         #If string, convert to state dict
         if isinstance(state_dict,str):
@@ -387,7 +387,7 @@ class MCTree_Handler:
         self.chess_model            = self.chess_model.type(settings.DTYPE).eval().to(self.device)
 
         #Perform jit tracing
-        torch.backends.cudnn.enabled= False
+        torch.backends.cudnn.enabled= True
         self.chess_model 			= torch.jit.trace(self.chess_model,torch.randn((1,17,8,8),device=self.device,dtype=settings.DTYPE))
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
@@ -607,8 +607,8 @@ if __name__ == '__main__':
     manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
     manager.load_dict('')
     movecounts  = {}
-    for _ in range(250):
-        mc                  = sorted({m.uci():n for m,n in manager.eval(1600).items()}.items(),key=lambda x: x[1],reverse=True)
+    for _ in range(500):
+        mc                  = sorted({m.uci():n for m,n in manager.eval(250).items()}.items(),key=lambda x: x[1],reverse=True)
         move =   mc[0][0]
         if move in movecounts:
             movecounts[move] += 1

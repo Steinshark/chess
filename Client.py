@@ -95,7 +95,7 @@ class Client(Thread):
 
 
         #Check model state works
-        self.current_model                      = ChessModel(17,16).cpu().type(settings.DTYPE)
+        self.current_model                      = ChessModel(**settings.MODEL_KWARGS).cpu().type(settings.DTYPE)
         self.current_model.load_state_dict(self.model_state)
 
 
