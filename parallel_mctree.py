@@ -387,7 +387,7 @@ class MCTree_Handler:
         self.chess_model            = self.chess_model.type(settings.DTYPE).eval().to(self.device)
 
         #Perform jit tracing
-        torch.backends.cudnn.enabled= False
+        torch.backends.cudnn.enabled= True
         self.chess_model 			= torch.jit.trace(self.chess_model,torch.randn((1,17,8,8),device=self.device,dtype=settings.DTYPE))
         self.chess_model 			= torch.jit.freeze(self.chess_model)
 
