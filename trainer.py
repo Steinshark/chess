@@ -69,19 +69,19 @@ class TrainerExpDataset(Dataset):
 
             #Add if first time 
             if not fen in newdata:
-                newdata[fen] = [fen,distr,z_val,ply]
+                newdata[fen]            = [fen,distr,z_val,ply]
 
-            #Add proportionally to inverse repeat count 
+            #combine if already there
             else:
-                if random.random() < 3/counts[fen]:
-                    repeat_counts[fen] += 1
-                    prev_data           = newdata[fen]
+                #if random.random() < 3/counts[fen]:
+                repeat_counts[fen] += 1
+                prev_data           = newdata[fen]
 
-                    new_distr           = utilities.normalize_torch(prev_data[1] + distr)
+                new_distr           = utilities.normalize_torch(prev_data[1] + distr)
 
-                    new_z               = (prev_data[2] + z_val) / 2 
+                new_z               = (prev_data[2] + z_val) / 2 
 
-                    newdata[fen]        = [fen,new_distr,new_z,ply]
+                newdata[fen]        = [fen,new_distr,new_z,ply]
 
         self.data                       = list(newdata.values())
         

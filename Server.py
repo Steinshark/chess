@@ -178,7 +178,7 @@ class Server(Thread):
 
         #Model items 
         self.chess_model                            = ChessModel(**settings.MODEL_KWARGS).eval().cpu()
-        self.chess_model.load_state_dict(torch.load("generations/gen_26.dict"))
+        #self.chess_model.load_state_dict(torch.load("generations/gen_26.dict"))
         self.gen                                    = 1
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
