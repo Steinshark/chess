@@ -3,10 +3,10 @@ import torch
 import utilities
 import random
 import numpy 
-
+import settings
 #load current model 
-cmodel  = model.ChessModel(17,16).bfloat16()
-cmodel.load_state_dict(torch.load("generations/gen_24.dict"))
+cmodel  = model.ChessModel(**settings.MODEL_KWARGS).bfloat16()
+cmodel.load_state_dict(torch.load("generations/gen_7.dict"))
 cmodel.float()
 cmodel.eval()
 cmodel 	= torch.jit.trace(cmodel,torch.randn((1,17,8,8)))

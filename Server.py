@@ -47,7 +47,7 @@ class Client_Manager(Thread):
         self.lock                   = False
 
         #Set 30min timeout
-        self.client_socket.settimeout(3600/2)
+        #self.client_socket.settimeout(3600#)
         print(f"\n\t{Color.green}launched a new client manager for {Color.tan}{self.client_address}\n{Color.end}")
 
 
@@ -178,7 +178,7 @@ class Server(Thread):
 
         #Model items 
         self.chess_model                            = ChessModel(**settings.MODEL_KWARGS).eval().cpu()
-        #self.chess_model.load_state_dict(torch.load("generations/gen_1.dict"))
+        self.chess_model.load_state_dict(torch.load("generations/gen_26.dict"))
         self.gen                                    = 1
         self.model_dict                             = self.chess_model.state_dict()
         self.device                                 = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -190,10 +190,10 @@ class Server(Thread):
         self.data_pool                              = [] 
         self.train_every                            = settings.TRAIN_EVERY
         self.exp_counter                            = 0
-        self.bs                                     = 2048
-        self.lr                                     = .0001
+        self.bs                                     = settings.BS
+        self.lr                                     = settings.LR
         self.wd                                     = 0
-        self.betas                                  = (.5,.9)
+        self.betas                                  = settings.BETAS
         self.n_epochs                               = 1 
         self.train_step                             = 0 
         self.lr_mult                                = 1
@@ -417,7 +417,7 @@ class Server(Thread):
             training_dataset                            = trainer.TrainerExpDataset(training_batch)
 
             #Train model on data
-            self.chess_model.train().to(self.device).type(settings.DTYPE)
+            self.chess_model                            = self.chess_model.train().to(self.device).type(settings.DTYPE)
             trainer.train_model(self.chess_model,training_dataset,bs=self.bs,lr=self.lr,wd=self.wd,betas=self.betas)
 
             #Check stockfish baseline 
