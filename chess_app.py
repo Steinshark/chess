@@ -49,6 +49,7 @@ from PIL import ImageTk
 #Do stuff
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 sys.path.append("C:/gitrepos")
+sys.setrecursionlimit(10000)
 
 
 MODEL_DICTS             = [os.path.join("generations",fname) for fname in os.listdir("generations") if "gen_" in fname and ".dict" in fname]

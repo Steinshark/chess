@@ -53,10 +53,6 @@ class TrainerExpDataset(Dataset):
 
 
     def combine_repeats(self):  
-
-        #Get counts 
-        fens                            = [x[0] for x in self.data]
-        counts                          = {data[0]:[x[0] for x in self.data].count(data[0]) for data in self.data}
         repeat_counts                   = {fen:0 for fen in self.fens}
         
         #fen-> [fen,distr,z,ply]

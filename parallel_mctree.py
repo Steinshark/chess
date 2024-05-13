@@ -589,9 +589,9 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     t0 = time.time()
     manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
-    manager.load_dict('')
+    manager.load_dict('generations/gen_12.dict')
     movecounts  = {}
-    for _ in range(500):
+    for _ in range(50):
         mc                  = sorted({m.uci():n for m,n in manager.eval(250).items()}.items(),key=lambda x: x[1],reverse=True)
         move =   mc[0][0]
         if move in movecounts:
