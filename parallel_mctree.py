@@ -124,7 +124,6 @@ class MCTree:
         self.lookup_dict[node.key][-1]  += 1
 
 
-
         #Generate node children (self.board is in the state of the current node)
         node.children                   = [Node(move,node,revised_probs[i],node.depth+1,not self.board.turn) for i,move in enumerate(self.board.generate_legal_moves())]
         
@@ -137,6 +136,7 @@ class MCTree:
         #Propogate value up tree
         node.bubble_up(evaluation)
         
+        #input(self.get_scores())
         #Unpop gameboard 
         for _ in range(self.curdepth):
             self.board.pop()
@@ -589,9 +589,9 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     t0 = time.time()
     manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
-    manager.load_dict('generations/gen_12.dict')
+    manager.load_dict('')
     movecounts  = {}
-    for _ in range(50):
+    for _ in range(200):
         mc                  = sorted({m.uci():n for m,n in manager.eval(250).items()}.items(),key=lambda x: x[1],reverse=True)
         move =   mc[0][0]
         if move in movecounts:

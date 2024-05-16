@@ -6,7 +6,7 @@ import numpy
 import settings
 #load current model 
 cmodel  = model.ChessModel(**settings.MODEL_KWARGS).bfloat16()
-cmodel.load_state_dict(torch.load("generations/gen_12.dict"))
+cmodel.load_state_dict(torch.load("generations/gen_2.dict"))
 cmodel.float()
 cmodel.eval()
 cmodel 	= torch.jit.trace(cmodel,torch.randn((1,17,8,8)))
