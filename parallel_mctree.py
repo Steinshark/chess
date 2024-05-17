@@ -16,7 +16,8 @@ from collections import OrderedDict
 import random
 import settings
 import copy
-
+import sys 
+#sys.setrecursionlimit(100000)
 class MCTree:
 
 
@@ -24,7 +25,7 @@ class MCTree:
 
 
         #Create game board
-        self.board                          = chess.Board()
+        self.board                          = chess.Board()#fen='rnbq1br1/pppP2p1/4k2N/1B4Q1/3P4/2N1B3/PPP2PPP/4RRK1 w - - 3 3')
 
         #Define the root node (the one that will be evaluatioed) and set
         #search variables
@@ -77,7 +78,6 @@ class MCTree:
             curnode                         = curnode.pick_best_child()
             self.board.push(curnode.move)
             self.curdepth                   += 1
-
         #Set curnode key 
         curnode.key                         = utilities.generate_board_key(self.board)
         #Check if gameover node and update node in tree 
@@ -100,7 +100,7 @@ class MCTree:
 
     #Perform expansion given that the node is an endstate 
     def perform_endgame_expansion(self,node:Node,evaluation:float):
-
+        
         #Propogate value up tree
         node.bubble_up(evaluation)
         
@@ -130,12 +130,11 @@ class MCTree:
         #If this is the root, then apply dirichlet noise to encourage exploration
         if node == self.root and not eval:
             self.apply_dirichlet()
-    
+                
 
 
         #Propogate value up tree
         node.bubble_up(evaluation)
-        
         #input(self.get_scores())
         #Unpop gameboard 
         for _ in range(self.curdepth):
@@ -274,29 +273,35 @@ class MCTree:
 
     #For making evals
     def perform_eval_iter(self):
-
+        #print(self.get_scores())
          #Get to bottom of tree via traversal algorithm
        # print(self.get_scores())
         curnode                             = self.root
         self.curdepth                       = 0
         while not curnode.is_leaf():
+            #print(self.board,"\n")
+            #print(f"picking of {[str(n.get_score())[:5] for n in curnode.children]}")
             curnode                         = curnode.pick_best_child()
+            #print(f"\tchose {str(curnode.get_score())[:5]} ({curnode.move})")
             self.board.push(curnode.move)
             self.curdepth                   += 1
-
+        #print("\n\n")
         #Set curnode key 
         curnode.key                         = utilities.generate_board_key(self.board)
         
         #Check if gameover node and update node in tree 
         if self.board.is_game_over():
             game_result                     = Node.RESULTS[self.board.result()]
+            #print(f"found game res {game_result}\n{sorted(self.get_scores(),key=lambda x:x[1],reverse=True)}")
             self.perform_endgame_expansion(curnode,game_result)
+           # input(sorted(self.get_scores(),key=lambda x:x[1],reverse=True))
             self.perform_eval_iter()
 
         #Else check if this board already has a value
         elif curnode.key in self.lookup_dict:
             self.curnode:Node           = curnode
             self.perform_expansion()
+            #input(self.get_scores())
             self.perform_eval_iter()
         
         #Else queue up for a model evaluation
@@ -589,10 +594,13 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     t0 = time.time()
     manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
-    manager.load_dict('')
+    manager.load_dict('generations/gen_35.dict')
     movecounts  = {}
-    for _ in range(200):
-        mc                  = sorted({m.uci():n for m,n in manager.eval(250).items()}.items(),key=lambda x: x[1],reverse=True)
+    f,a         = plt.subplots(nrows=2,ncols=1)
+    #print(mc)
+    #exit()
+    for _ in range(50):
+        mc                  = sorted({m.uci():n for m,n in manager.eval(800).items()}.items(),key=lambda x: x[1],reverse=True)
         move =   mc[0][0]
         if move in movecounts:
             movecounts[move] += 1
@@ -600,11 +608,29 @@ if __name__ == '__main__':
             movecounts[move] = 1
 
         del manager.active_trees[0]
+        manager.lookup_dict = {}
 
         manager.active_trees.append(MCTree(0,manager.max_game_ply,manager.n_iters,lookup_dict=manager.lookup_dict))
         #print(  str(    mc) )
     
-    plt.bar(list(movecounts.keys()),list(movecounts.values()))
-    plt.show()
+    a[0].bar(list(movecounts.keys()),list(movecounts.values()))
+
+    Node.c = 10
+    for _ in range(50):
+        mc                  = sorted({m.uci():n for m,n in manager.eval(800).items()}.items(),key=lambda x: x[1],reverse=True)
+        move =   mc[0][0]
+        if move in movecounts:
+            movecounts[move] += 1
+        else:
+            movecounts[move] = 1
+
+        del manager.active_trees[0]
+        manager.lookup_dict = {}
+
+        manager.active_trees.append(MCTree(0,manager.max_game_ply,manager.n_iters,lookup_dict=manager.lookup_dict))
+        #print(  str(    mc) )
+    
+    a[1].bar(list(movecounts.keys()),list(movecounts.values()))
+    f.show()
     #print(f"{(time.time()-t0)/len(data):.2f}s/move")
 

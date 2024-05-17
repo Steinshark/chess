@@ -13,7 +13,7 @@ import math
 class Node:
 
     #Determine exploration tendency
-    c           = 1.5
+    c           = 2
 
     #For easy game outcome mapping
     RESULTS     = {"1/2-1/2":0,
@@ -90,7 +90,8 @@ class Node:
 
     #Score is evaluated in a revised PUCT manner. Uses average result as well as exploration tendency and move counts - cap at 1
     def get_score(self):
-        return (self.cumulative_score / (self.n_visits+1)) + -1.*self.turn*(self.prior_p + (self.c*math.sqrt(self.parent.n_visits)/(self.n_visits+1)))
+        return (self.cumulative_score / (self.n_visits+1)) + self.precompute*math.sqrt(self.parent.n_visits)/(self.n_visits+1)
+        #return (self.cumulative_score / (self.n_visits+1)) + -1.*self.turn*(self.prior_p + (self.c*math.sqrt(self.parent.n_visits)/(self.n_visits+1)))
 
 
     #Return just the q_score (for training)
