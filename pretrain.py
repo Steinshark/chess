@@ -6,251 +6,108 @@
 
 import chess
 import chess.engine
-import chess.utilities as utilities
-from model import ChessModel
+import utilities
+from model import ChessModel,ChessModel2, ChessTransformer
 import numpy 
 import torch
 import trainer
+from collections import defaultdict
 from torch.utils.data import DataLoader
 import random 
-import multiprocessing
 import os 
 import random
-import time 
+from typing import List,Tuple,Dict
 import json 
 from matplotlib import pyplot as plt  
-import zstandard 
+from data import combine_ds, PositionSet
+import data 
+import gc
+import time 
 
 
-class probPreSet:
-
-    def __init__(self,move_visits):
-        self.positions      = [] 
-        self.distributions  = [] 
-
-        for position, move_count in move_visits:
-            self.positions.append(position)
-            self.distributions.append(utilities.movecount_to_prob(move_count))
-    
-    def __getitem__(self,i):
-        return (self.positions[i],self.distributions[i])
-    
-    def __len__(self):
-        return len(self.distributions)
-
-
-def decompress_zst(filename:str):
-    decompressor        = zstandard.ZstdDecompressor()
-    with open(filename, "rb") as reader, open(filename.replace(".zst",""),"wb") as writer:
-
-        decompressor.copy_stream(reader,writer,write_size=65536)
+def parse_score(snippet:str):
+    if "0-1" in snippet:
+        return -1 
+    elif "1-0" in snippet:
+        return 1 
+    else:
+        return 0 
     
 
-def parse_multiple(gametest_lists):
-    common_dict         = []
+def parse_games(filetext:str,elo_thresh:int=2100,save_mod=False,fname2='',timethresh=500):
+    print(f"Parsing")
+    #Split on Event 
+    split_text              = filetext.split("[Event")[1:]
 
-    list_of_lists       = [parse_movelist(gametext) for gametext in gametest_lists]
-    common_dict         = [item for single_list in list_of_lists for item in single_list]
+    #Get ELOs
+    elo_splits              = [text.split('WhiteElo "')[1] for text in split_text]
+    del split_text
+    gc.collect()
+    #elo_splits              = [text for text in elo_splits if not text[0] in ['?','"']]
+    white_elos              = [int(text.split('"')[0]) if not text[0] in ['?','"'] else 0 for text in elo_splits]
 
-    return common_dict
-
-
-def parse_movelist(gametext):
-    if "eval" in gametext:
-        return {}
-     
-    split_string        = '\n\n['
-    move_list           = gametext.replace(split_string,'').split(' ')[:-1]
-
-    micro_pos_map       = []
-    board               = chess.Board()
-    move_list
-    move_list           = [move for move in move_list if not "." in move]
-
-    for move in move_list:
-        #Get key
-        key             = " ".join(board.fen().split(" ")[:4])
-        move            = board.parse_san(move)
-
-        #Update dict 
-        micro_pos_map.append((key,move.uci(),list(board.generate_legal_moves())))
-        board.push(move)
-        
-    return micro_pos_map
+    elo_splits              = [text.split('BlackElo "')[1] for text in elo_splits]
+    black_elos              = [int(text.split('"')[0]) if not text[0] in ['?','"'] else 0 for text in elo_splits]
 
 
-def train_probs(model:ChessModel,dataset:probPreSet,testset:probPreSet,lr=.001,bs=1024,betas=(.5,.9),wd=.01):
+    #Get time control 
+    time_splits             = [text.split('TimeControl "')[1] for text in elo_splits]
+    time_controls           = [text.split('"')[0] for text in time_splits]
+    time_controls           = [int(text.split("+")[0]) if not text[0] == '-' else 0 for text in time_controls]
+    del time_splits
+    gc.collect()
 
-    #Prep model
-    model.train().float().to(torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
-    optimizer               = torch.optim.Adam(model.parameters(),lr=lr,betas=betas,weight_decay=wd)
-    #optimizer               = torch.optim.SGD(model.parameters(),lr=lr,momentum=.5,nesterov=True)
-    accuracies              = [] 
-    
-    dataloader              = DataLoader(dataset,batch_size=bs,shuffle=True)
-    testloader              = DataLoader(testset,batch_size=len(testset),shuffle=False)
+    #print(f"\tfound {len(elo_splits)} candidate games")
+    #Take out games with ELOS below 
+    good_games              = [(text.split('\n\n')[1].split(" "),welo,belo,time_control) for text,welo,belo,time_control in zip(elo_splits,white_elos,black_elos,time_controls) if welo > elo_thresh and belo > elo_thresh and not 'eval' in text and time_control >= timethresh]
+    good_games              = [([m for m in game[0][:-1] if not '.' in m],game[1],game[2],game[3],game[0][-1]) for game in good_games]
 
-    for batch_i,batch in enumerate(dataloader):
-        optimizer.zero_grad()
+    good_games              = [pack for pack in good_games if len(pack[0]) > 2]
+    print(f"\tparsed {len(good_games)} {elo_thresh} elo games -> {(100*len(good_games)/len(elo_splits)):.2f}%")
 
-        position            = utilities.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
-        post_probs          = batch[1].to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
-        prior_probs,evals   = model.forward(position)
-
-        loss                = torch.nn.functional.cross_entropy(prior_probs,post_probs)
-        loss.backward()
-        optimizer.step()
-
-
-        #get testloss
-        for batch in testloader:
-            with torch.no_grad():
-                model.eval()
-                position            = utilities.batched_fen_to_tensor(batch[0]).to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
-                post_probs          = batch[1].to(torch.device('cuda' if torch.cuda.is_available() else 'cpu')).float()
-                prior_probs,evals   = model.forward(position)
-                post_max        = post_probs.max(dim=1)[1]
-                prior_max       = prior_probs.max(dim=1)[1]
-                accuracy        = len(post_max[post_max==prior_max]) / position.shape[0]
-
-                if bs < 1024:
-                    if (batch_i*bs) % 1024 == 0:
-                        accuracies.append(accuracy) 
-                else:
-                    for _ in range(bs//1024):
-                        accuracies.append(accuracy)
-                model.train()
-            
-
-    return accuracies 
-    
-
-def create_probs_from_pgn(pgn_file:str):
+    if save_mod:
+        with open(f"{fname2.replace(".pgn","redo.txt").replace("pgns","files")}",'w') as file:
+            for moveslist,welo,belo,timecontrol,outcome in good_games:
+                moves   =  ",".join(moveslist)
+                line    = f"{moves}.{welo}.{belo}.{timecontrol}.{outcome}\n"
+                file.write(line)
+            print(f"\tsaved games")
+        file.close()
+    return good_games
 
 
-    position_map            = {}
-    #position_map            = json.loads(open("positions.dict",'r').read())
-    startfne    = " ".join(chess.Board().fen().split(" ")[:4])
-    #Open file and parse all games into their moves
-    with open(pgn_file,'r') as file:
+#Takes the pack of experiences ([moves as str],w_elo,b_elo,time_control,outcome) and returns a list of (fen,move_played) for all games provided
+def run_game(game_pack):
+    move_list, elo_w, elo_b, t_control, outcome         = game_pack
+    board                   = chess.Board()
+
+    experiences             = [(board.fen(),board.push_san(move).uci(),board.turn,outcome) for move in move_list]
+
+    return experiences
 
 
-        #Parse a game at a time
-        #   start with [Event...]
-        #   end with  
-        
-        games           = file.read().split("Event")
-        # for _ in range(50_000_000):
-        #     file.__next__()
-        #games           = "".join([file.__next__() for _ in range(50_000_000)]).split("Event")
-        print(f"Read games")
-        split_2         = '\n\n'
-        games           = [gametext for gametext in games if "\n\n1." in gametext]
-        games           = [gametext.split(split_2)[1] for gametext in games]
-        print(f"Parsed {len(games)} games")
+#loads tuples of (fen,move,outcome) 
+def load_games(fname:str):
+    # moves   =  ",".join(moveslist)
+    #             line    = f"{moves}.{welo}.{belo}.{timecontrol}.{outcome}\n"
+    #             file.write(line)
+    allmoves    = [line.split('.') for line in open(fname,'r').readlines()]
+    newmoves    = [(game[0].split(","),int(game[1]),int(game[2]),int(game[3]),game[4].replace("\n","")) for game in allmoves] 
+    print(f"generating {len(newmoves)} games")
+    allgames    = [] 
+    for game in newmoves:
+        allgames += run_game(game)
+    return allgames
 
-        move_lists      = [] 
-        window_size     = 10_000
-        i               = 0 
-        while games:
-            t0 = time.time()
-
-            #Grab window number of games
-            positions   = games[:window_size]
-            games       = games[window_size:]
-
-            #Process them
-            window      = 1000
-            import math 
-            # work_chunks = [] 
-            # while positions:
-            #     work_chunks += positions[:window]
-            #     positions   = positions[window:]
-            work_chunks = [positions[i*window:(i+1)*window] for i in range(math.ceil(window_size/window)) if len(positions[i*window:(i+1)*window]) == window]
-            with multiprocessing.Pool(8) as pool:
-                move_lists  = pool.map(parse_multiple,work_chunks)
-            pool.close()
-
-            #game_dicts     = map(parse_movelist,positions)
-
-            #Add them to the main dict 
-            for move_list in move_lists:
-                for pack in move_list:
-                    position,move,moves  = pack
-
-                    if position in position_map:
-                        position_map[position][move] += 1 
-
-                    else:
-                        position_map[position] = {m.uci():0 for m in moves}
-                        position_map[position][move] = 1
-
-            #Print results
-            i += window_size
-            print(f"{i}/{len(games)} in {(time.time()-t0):.2f}s")
-            resdict     = {m: c for m,c in position_map[startfne].items()}
-            print(f"{resdict}")
-            old_len         = len(list(position_map.keys()))
-            print(f'Total {old_len}',end="->")
-
-            #Prune search
-            markdel         = []
-            for key in position_map:
-                total = 0 
-                for move,count in position_map[key].items():
-                    total += count 
-                if total < 2:
-                    markdel.append(key)
-            
-            for key in markdel:
-                del position_map[key]
-            new_len         = len(list(position_map.keys()))
-            print(f'{new_len} keys\n\n')
-            with open("positions.dict","w") as writefile:
-                writefile.write(json.dumps(position_map))
-            writefile.close()
+#Returns (fen,uci,outcome)
+def get_experiences(filename:str,saving_only=True):
+    good_games              = parse_games(open(filename,'r').read(),elo_thresh=2100,save_mod=True,fname2=filename,timethresh=180)
+    if not saving_only:
+        total_experiences       = list(map(run_game,good_games))
+        return total_experiences
 
 
-        
-        
-    
-        print(f"parsed {len(move_lists)} games")
-   
-
-def parse_probabilities(n_visits=3):
-    position_map            = json.loads(open("positions.dict",'r').read())
-    training_data           = [(position,position_map[position]) for position in position_map if sum([v for m,v in position_map[position].items()]) > n_visits] 
-    print(f"found {len(training_data)} positions")
-    return training_data
-
-
-def sample_data(experiences, n):
-    white_wins = []
-    black_wins = []
-    draws = []
-    
-    # Shuffle experiences while preserving original order
-    #random.seed(42)  # Setting a seed for reproducibility
-    shuffled_experiences = list(experiences)
-    random.shuffle(shuffled_experiences)
-    
-    for experience in shuffled_experiences:
-        fen, chosen_move_i, prior_prob_vector, outcome = experience
-        if outcome == 1 and len(white_wins) < n:
-            white_wins.append(experience)
-        elif outcome == -1 and len(black_wins) < n:
-            black_wins.append(experience)
-        elif outcome == 0 and len(draws) < n:
-            draws.append(experience)
-        
-        if len(white_wins) == n and len(black_wins) == n and len(draws) == n:
-            print(f"\tconditions satisfied n={n}")
-            break
-    
-    return white_wins, black_wins, draws
-
-
-def pretrain(chess_model:ChessModel,exps,bs=4096,lr=.001,wd=.01,betas=(.5,.75)):
+def pretrain(chess_model:ChessModel,exps,bs=4096,lr=.0003,wd=.01,betas=(.5,.75)):
 
     dataset                 = trainer.PretrainDataset(exps)
     dataloader              = DataLoader(dataset,batch_size=bs,shuffle=True)
@@ -324,109 +181,367 @@ def pretrain(chess_model:ChessModel,exps,bs=4096,lr=.001,wd=.01,betas=(.5,.75)):
         optim.step()
 
 
-def dirichlet_scheduler(move_n):
+def prepare_batch(game_lists:list[list],prob_func=lambda x: random.random() < 1/(1+2.718**(-.2*(x-10)))):
 
-    return numpy.exp(-.1*move_n) / 4 
+    positions               = {}
+    n_encounters            = 0
+    for game in game_lists:
 
+        for position_pack in game:
 
-def generate_experiences(pack):#chess_model:ChessModel2,n_iters=16*4096):
-    chess_model,n_iters     = pack
-    dataset             = []
+            fen,move,outcome            = position_pack
+            move_i                      = utilities.MOVE_TO_I[chess.Move.from_uci(move)]
 
-    with torch.no_grad():
-        while len(dataset) < n_iters:
-
-            #Create a chess board x
-            board           = chess.Board()
-            local_exp       = [] 
-
-
-            #Make moves while its not gameover 
-            while not board.is_game_over() and board.ply() < 200:
-                
-                #Get repr
-                position_fen            = board.fen()
-
-                #Make one pass with the network to get prior_probs
-                prior_probs,v           = chess_model.forward(utilities.batched_fen_to_tensor([position_fen]).float())
-
-                #Correct for legal moves
-                board_moves             = list(board.legal_moves)
-                revised_numpy_probs     = numpy.take(prior_probs[0].numpy(),[utilities.MOVE_TO_I[move] for move in board_moves])
-                revised_numpy_probs     = utilities.normalize_numpy(revised_numpy_probs,1)
-
-                full_prob_dist          = numpy.zeros(1968,numpy.float32)
-
-                #use dirichlet to add randomness
-                dirichlet               = numpy.random.dirichlet([.1 for _ in revised_numpy_probs]) 
-                dir_epsilon             = dirichlet_scheduler(board.ply())
-                for prob,diri,move in zip(revised_numpy_probs,dirichlet,board_moves):
-
-                    move_i              = utilities.MOVE_TO_I[move]
-                    full_prob_dist[move_i]  = ((1-dir_epsilon)*prob + (dir_epsilon)*diri)
-
-                #record data    
-                move_i                  = numpy.argmax(full_prob_dist)
-
-                #Push the move 
-                board.push(utilities.I_TO_MOVE[move_i])
-                local_exp.append([position_fen,move_i,full_prob_dist,0])
-
-            #Check result and update 
-            result  = 0 
-            if board.result() == "1-0":
-                result = 1
-            elif board.result() == "0-1":
-                result = -1 
-            elif board.result() == "1/2-1/2" or board.result() == "*":
-                result = 0 
+            if fen in positions:
+                probs,eval              = positions[fen]
+                probs[move_i]           += 1 
+                eval                    += outcome
+                positions[fen]          = [probs,eval]
             else:
-                print(f"got strange {board.result()}")
-
-            
-            for exp in local_exp:
-                exp[-1] = result
-                dataset.append(exp)
-
-            #print(f"\tresult of game was {result} - {len(dataset)}")
-
-
+                distribution            = numpy.zeros(shape=1968)
+                distribution[move_i]    = 1 
+                positions[fen]          = [distribution,outcome]
+            n_encounters += 1
     
+    #Remove all items based on 'prob_func'
+    dataset     = {}
+    for position, pack in positions.items():
+        if prob_func(pack[0].sum()):
+            dataset[position] = pack
+    print(f"\t{len(dataset)} datapoints created")
     return dataset
 
 
-if __name__ == "__main__":
+def batch_trainer(model:ChessModel2,games_bs=10_000,bs=1024,lr=.0001,wd=.1,n_ep=8):
+    
+    test_acc                = []
+    test_evl                = []
+    train_acc               = []
+    train_evl               = []
+    #plt.ion()
+    #plt.show()
+    engine 	                = chess.engine.SimpleEngine.popen_uci("C:/gitrepos/stockfish/stockfish-windows-x86-64.exe")
 
-    # for fname in ["C:/data/chess/LichessJune2014.pgn.zst","C:/data/chess/LichessJuly2014.pgn.zst"]:
-    #     decompress_zst(fname)
-    # create_probs_from_pgn("C:/data/chess/LichessJune2014.pgn")
-    # exit()
+    #Load one of the files 
+    for ep_n in range(n_ep):
+        for file in os.listdir("C:/data/chess/game_data"):
+            if not '.txt' in file:
+                continue
+            experience_set          = json.loads(open("C:/data/chess/game_data/" + file,'r').read())
+            print(f"train on {file} -> {sum([len(l) for l in experience_set])} candidate datapoints")
+            model                   = model.cuda().train().float()
+            optimizer               = torch.optim.AdamW(model.parameters(),lr=lr,betas=(.9,.99),weight_decay=wd,amsgrad=True)
+
+            test_set                = prepare_batch(experience_set[:5])
+            experience_set          = experience_set[5:]
+            print(f"\ttrainset = {len(experience_set)}")
+
+            model                   = model.eval()
+            test_loader             = DataLoader(ChessSet(test_set),batch_size=1024)
+            test_correct           = 0 
+            test_total             = 0 
+
+            eval_list               = []
+            with torch.no_grad():
+                for batch in test_loader:
+                    fen,distr,evl,n = batch
+                    inp             = utilities.batched_fen_to_tensor(fen).cuda().float()
+                    distr           = distr.cuda().float()
+                    evl             = evl.cuda().float()
+                    distr_,evl_     = model(inp)
+
+                    #Get accuracy
+                    post_max            = distr_.max(dim=1)[1]
+                    prior_max           = distr.max(dim=1)[1]
+                    test_total          += inp.shape[0]
+                    test_correct        += len(post_max[post_max==prior_max])
+
+                    #Get error 
+                    last_10_eval    = evl_.detach().cpu()[-1]
+                    last_10_evl_    = torch.tensor([engine.analyse(chess.Board(fen=f),limit=chess.engine.Limit(time=1/32))['score'].white().score(mate_score=15300)/15_300 for f in fen[-1:]] )
+                    err             = torch.nn.functional.mse_loss(last_10_eval,last_10_evl_).detach().cpu().item()
+                    eval_list.append(err)
+        
+            test_evl.append(sum(eval_list)/len(eval_list))
+            train_evl.append(sum(eval_list)/len(eval_list))
+            test_acc.append(test_correct/test_total)
+            train_acc.append(test_correct/test_total)
+
+            while experience_set:
+
+
+                #Create an experience batch
+                breakoff            = experience_set[:games_bs]
+                experience_set      = experience_set[games_bs:]
+                positions_data      = prepare_batch(breakoff)
+                #print(f"positions {sum([len(l) for l in breakoff])} -> {len(positions_data)}")
+
+                #Prepare data 
+                dataset             = ChessSet(positions_data)
+                dataloader          = DataLoader(dataset,bs,True)
+
+                #Prepare model
+                model               = model.train()
+
+
+                train_correct       = 0 
+                train_total         = 0 
+                eval_list           = []
+                for batch in dataloader:
+
+                    #Load data 
+                    fen,distr,evl,n = batch
+                    inp             = utilities.batched_fen_to_tensor(fen).cuda().float()
+                    distr           = distr.cuda().float()
+                    evl             = evl.cuda().float()
+
+                    #Train 
+                    distr_,evl_     = model(inp)
+
+                    #Get loss
+                    #Scale error by the frequency of the encounter 
+                    err_scale       = (2- 2.718**(-.5*(n.mean().item()-2)))/2
+                    p_loss          = torch.nn.functional.cross_entropy(distr_,distr)*err_scale
+                    v_loss          = torch.nn.functional.mse_loss(evl_.flatten(),evl)*err_scale
+                    comb_loss       = p_loss + v_loss
+
+                    #Step model
+                    optimizer.zero_grad()
+                    comb_loss.backward()
+                    optimizer.step()
+
+                    #Get acc
+                    post_max            = distr_.max(dim=1)[1]
+                    prior_max           = distr.max(dim=1)[1]
+                    train_correct       += len(post_max[post_max==prior_max])
+                    train_total         += inp.shape[0]
+                    #Get error 
+                    last_10_eval    = evl_.detach().cpu()[-1]
+                    last_10_evl_    = torch.tensor([engine.analyse(chess.Board(fen=f),limit=chess.engine.Limit(time=.1))['score'].white().score(mate_score=15300)/15_300  for f in fen[-1:]])
+                    err             = torch.nn.functional.mse_loss(last_10_eval,last_10_evl_).detach().cpu().item()
+                    eval_list.append(err)
+                train_evl.append(sum(eval_list)/len(eval_list))
+
+                model                   = model.eval()
+                test_loader             = DataLoader(ChessSet(test_set),batch_size=1024)
+                test_correct            = 0 
+                test_total              = 0 
+                eval_list               = []
+                with torch.no_grad():
+                    for batch in test_loader:
+                        fen,distr,evl,n = batch
+                        inp             = utilities.batched_fen_to_tensor(fen).cuda().float()
+                        distr           = distr.cuda().float()
+                        evl             = evl.cuda().float()
+                        distr_,evl_     = model(inp)
+
+                        #Get accuracy
+                        post_max        = distr_.max(dim=1)[1]
+                        prior_max       = distr.max(dim=1)[1]
+                        test_total      += inp.shape[0]
+                        test_correct    += len(post_max[post_max==prior_max])
+                        #Get error 
+                        last_10_eval    = evl_.detach().cpu()[-1]
+                        last_10_evl_    = torch.tensor([engine.analyse(chess.Board(fen=f),limit=chess.engine.Limit(time=.1))['score'].white().score(mate_score=15300)/15_300  for f in fen[-1:]])
+                        err             = torch.nn.functional.mse_loss(last_10_eval,last_10_evl_).detach().cpu().item()
+                        eval_list.append(err)
+                        
+                    test_acc.append(test_correct/test_total)
+                    train_acc.append(train_correct/train_total)
+                    test_evl.append(sum(eval_list)/len(eval_list))
+
+    
+                plt.plot(test_acc,label='Test Acc')
+                plt.plot(train_acc,label='Train Acc')
+                plt.plot(test_evl,label='Test Err')
+                plt.plot(train_evl,label='Train Err')
+                plt.title("Accuracy vs. Train Iter")
+                plt.legend()
+                plt.draw()
+                plt.pause(2)
+                plt.clf()
+                plt.cla()
+                print(f"\tacc={test_acc[-1]:.4f}")
+                torch.save(model.state_dict(),"curstate.pt")
+
+                #Get it ready for the network
+            plt.clf()
+            plt.cla()
+
+
+def check_model(model:ChessModel2):
+    for file in os.listdir("C:/data/chess"):
+        if not '.txt' in file or "2014" in file or "01" in file or "02" in file:
+            continue
+        file                    = "C:/data/chess/" + file
+        print(f"train on {file}")
+        experience_set          = json.loads(open(file,'r').read())
+        model                   = model.cuda().eval().float()
+
+        test_set                = prepare_batch(experience_set[:2048])
+        ds                      = ChessSet(test_set)
+        for item in ds:
+            position,distr,evl,n    = item 
+            if n < 10:
+                continue
+            #distr                   = numpy.zeros(shape=1968)
+            prob,ind                = torch.sort(torch.from_numpy(distr),descending=True)
+            top_moves               = [] 
+            j = 0
+            for p,i in zip(prob,ind):
+                top_moves.append((utilities.I_TO_MOVE[i.item()].uci(),p.item()))
+                j += 1 
+                if j > 5:
+                    break
+            print(f"{position}-> {top_moves}")
+
+            model_distr             = model(utilities.batched_fen_to_tensor([position]).cuda().float())[0][0].detach().cpu()
+            prob,ind                = torch.sort(model_distr,descending=True)
+            model_top_moves         = [] 
+            j = 0
+            for p,i in zip(prob,ind):
+                model_top_moves.append((utilities.I_TO_MOVE[i.item()].uci(),str(p.item())[:6]))
+                j += 1 
+                if j > 5:
+                    break
+            input(f"{position}-> {model_top_moves}")
+
+
+#trains with a list of experiences where each is (fen,outcome,probs)
+def train_model(model:torch.nn.Module,exp_set:List[Tuple[str,str,Dict[str,int]]],prob_set,n_iters=1_000_000,bs:int=64,lr=.0001):
+
+    t0                  = time.time()
+    #Build dataset 
+    ds                  = PositionSet(exp_set,prob_set)
+    loader              = DataLoader(ds,batch_size=bs,shuffle=True,collate_fn=lambda x: (torch.tensor(numpy.array([it[0] for it in x])),[it[1] for it in x],torch.tensor(numpy.array([it[2] for it in x])), torch.tensor(numpy.array([it[3] for it in x ])),torch.tensor(numpy.array([it[4] for it in x ]))) )
+    
+    optimizer           = torch.optim.Adam(model.parameters(),lr=lr,betas=(.9,.95))
+    for i,batch in enumerate(loader):
+
+        optimizer.zero_grad()
+
+        #Sample bs number of items 
+        x       = batch[0].long().cuda()    
+        probs   = batch[1]
+        move_i  = batch[2].cuda().float()
+        outcome = batch[3].unsqueeze(dim=-1).cuda().float()
+        turn    = batch[4].unsqueeze(dim=-1).cuda().long()
+
+        #real probs 
+        real_probs  = torch.zeros(size=(x.size(0),len(data.move_to_i)))
+        for i,game in enumerate(probs):
+            for move_i in game:
+                real_probs[i][move_i] = game[move_i]
+        real_probs  = real_probs.float().cuda()
+        real_probs  = real_probs + 1e-8
+        real_probs  = real_probs / real_probs.sum(dim=1,keepdim=True)
+
+        #Get predictions
+        p,v     = model(x,turn)
+
+        #Use KL_div
+        log_preds   = torch.log(p+1e-9)
+        loss_p      = torch.nn.functional.kl_div(log_preds,real_probs,reduction='batchmean') 
+        loss_v      = torch.nn.functional.mse_loss(v,outcome)
+
+        total_loss  = loss_p + loss_v
+        total_loss.backward()
+
+        optimizer.step()
+
+        print(total_loss)
+
+        #save every min 
+        if time.time() - t0 > 60:
+            torch.save(model.state_dict(),"E:/data/chess/models/top_model.pt")
+            t0 = time.time()
+            print(f"saved model")
+
+    return 0
+
+
+
+if __name__ == "__main__":
+    #cmodel  = ChessModel2()
+    #cmodel.load_state_dict(torch.load('curstate.pt'))
+    #batch_trainer(cmodel,n_ep=8)
+    #exit()
+    #check_model(cmodel)
+    #exit()
+    #for fname in ["C:/data/chess/032015.pgn.zst","C:/data/chess/042015.pgn.zst","C:/data/chess/052015.pgn.zst","C:/data/chess/062015.pgn.zst",'C:/data/chess/072015.pgn.zst']:
+    #    decompress_zst(fname)
+    #exit()
+    #create_probs_from_pgn("C:/data/chess/022015.pgn")
+    #exit()
+    all_data                = [] 
+    #with multiprocessing.Pool(1) as pool:
+    
+
+    #Build the list of experiences
+    args    = ["E:/data/chess/game_pgns/"+fname for fname in os.listdir("E:/data/chess/game_pgns") if ".pgn" in fname]
+    experience_pool     = []
+    for file in args[:20]:
+
+        existing_fpath  = file.replace(".pgn","redo.txt").replace("game_pgns","game_files")
+        if os.path.exists(existing_fpath):
+            games   = load_games(existing_fpath)
+        else:
+            games   = get_experiences(file,saving_only=False)
+        
+        experience_pool += games
+
+    #compute the probabilities given fen -> move
+    print(f"Computing probabilities for {len(experience_pool)} positions")
+    move_to_i           = {uci:i for i, uci in enumerate(json.loads(open("chessmoves.txt",'r').read()))}
+    i_to_move           = {move_to_i[uci]:uci for uci in move_to_i}
+    probabilities       = {}
+    for position in experience_pool:
+        fen,move,outcome,turn       = position 
+
+        if not fen in probabilities:
+            #Get legal moves 
+            probabilities[fen]      = {move_to_i[m.uci()]:0 for m in list(chess.Board(fen=fen).generate_legal_moves())}
+
+        probabilities[fen][move_to_i[move]] += 1
+
+
+    print(f"found {len(probabilities)} unique positions")
+
+        #print(f"{type(games)}->{games[0]}")
+        #results = pool.imap(get_experiences,args)
+
+    #     #experience_list     = get_experiences(f'C:/data/chess/game_pgns/{fname}')
+    #     for experience_list in results:    
+    #         all_data += experience_list
+    # with open("C:/data/chess/all_games.txt",'w') as file:
+    #     file.write(json.dumps(all_data))
     accuracies      = { #(torch.nn.RReLU,64,.0002,0,True):[],
                         #(torch.nn.PReLU,128,.0002,0,True):[],
-                        (torch.nn.PReLU,256,.0005,0,True):[],
-                        (torch.nn.PReLU,512,.0005,0,True):[],}
+                        #(torch.nn.PReLU,256,.0005,0,True):[],
+                        #(ChessModel, 2048,.0001,.001,True):[],
+                        #(ChessModel2,4096,.001,.01,True):[],
+                        (ChessTransformer ,1024,.0001,.01):[],
+                        (ChessModel2,1024,.0001,.01):[]}
     
-    training_set            = parse_probabilities()
-    print(f"loaded {len(training_set)} datapoints")
+    #training_set            = parse_probabilities(n_visits=8)
+    #random.shuffle(training_set)
+    #print(f"loaded {len(training_set)} datapoints")
+    print(f"created {len(experience_pool)} experiences")
+    random.shuffle(experience_pool)
+    split_i         = int(.85 * len(experience_pool)) 
+    training_set    = experience_pool[:split_i]
+    test_set        = experience_pool[split_i:]
 
-
-    testing_set     = training_set[-4096:]
-    training_set    = training_set[:-4096]
-    print(f"test: {len(testing_set)}\t train: {len(training_set)}")
-
-    dataset         = probPreSet(training_set)
-    testset         = probPreSet(testing_set)
+    print(f"train with {len(training_set)}\ttest with {len(test_set)}")
 
     for params in accuracies:
-        act                     = params[0]
+        mod                     = params[0]
         bs                      = params[1]
         lr                      = params[2]
         wd                      = params[3]
-        all_cn                  = params[4]
-        chess_model             = ChessModel(19,16,lin_act=act,conv_act=act,all_prelu=all_cn).float().eval()
-        
-        print(f"test {params}")
-        acc                 = train_probs(chess_model,dataset,testset,lr=lr,bs=bs,wd=wd,betas=(.5,.99))
+        chess_model             = mod().float().eval().cuda()
+
+        acc                 = train_model(chess_model,training_set,probabilities,bs=bs)
         accuracies[params]  += acc
 
         plt.plot(accuracies[params],label=str(params).replace("<class 'torch.nn.modules.activation.",'').replace("'>",''))
@@ -434,64 +549,5 @@ if __name__ == "__main__":
     plt.ylabel("Accuracy")
     plt.legend()
     plt.show()    
-        
+    torch.save(chess_model.state_dict(),"pram_train.pt")
     exit()
-    #chess_model.load_state_dict(torch.load("pretrain/8.dict"))
-    iteration       = 50
-    exp_size        = 32768
-    full_exps       = [] 
-
-    n_workers       = 4
-    with multiprocessing.Pool(n_workers) as pool:
-        results         = pool.map(generate_experiences, [(chess_model,4096) for _ in range(n_workers)])
-    
-    for res in results:
-        full_exps += res
-
-    for iter_n in range(iteration):
-        print(f"\n\n\tStart Data Collection [{iter_n}/{iteration}]")
-        chess_model.eval()
-        with multiprocessing.Pool(n_workers) as pool:
-            results         = pool.map(generate_experiences, [(chess_model,exp_size//n_workers) for _ in range(n_workers)])
-        
-        for res in results:
-            full_exps += res
-        #ds              = generate_experiences(chess_model,exp_size)
-
-        white_w         = [1 for exp in full_exps if exp[-1] == 1]
-        black_w         = [1 for exp in full_exps if exp[-1] == -1]
-
-        print(f"\tw: {sum(white_w)}\tb: {sum(black_w)}")
-
-        #Write a function to sample equal amounts of B,W,D
-        
-        scalar          = min(1.85+((1+iter_n)*.5), 4)
-        full_exps       = full_exps[-int(scalar*exp_size):]
-        white,black,draw= sample_data(full_exps,2048)
-        trainset        = white + black + draw 
-        random.shuffle(trainset)
-        #trainset        = random.sample(full_exps,int(exp_size))
-        
-        print(f"\ttraining on [{len(trainset)}/{len(full_exps)}]")
-        chess_model.train()
-        pretrain(chess_model,trainset,bs=1024,lr=.0001,wd=0.01,betas=(.75,.9))
-        p,v             = trainer.check_vs_stockfish(chess_model)
-        print(f"\titer: {iter_n}: p_loss={p:.4f}\tv_loss={v:.4f}")
-        #Get d4,e4 provs 
-        prob,v_s        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board().fen()]).float())
-        mate_fen        = 'r1bqkbnr/2pppppp/ppn5/8/2B5/4PQ2/PPPP1PPP/RNB1K1NR w KQkq - 2 4'
-        bmate_fen       = 'rnbqkbnr/pppp1ppp/4p3/8/5PP1/8/PPPPP2P/RNBQKBNR b KQkq - 0 2'
-        e4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("e2e4")]]
-        f3              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("f2f3")]]
-        prob,v_m        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board(fen=mate_fen).fen()]).float())
-        f7              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("f3f7")]]
-        c4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("c4f7")]]
-        prob,v_b        = chess_model.eval().forward(utilities.batched_fen_to_tensor([chess.Board(fen=bmate_fen).fen()]).float())
-        h4              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("d8h4")]]
-        a6              = prob[0][utilities.MOVE_TO_I[chess.Move.from_uci("a7a6")]]
-        print(f"\t START v:{v_s.item():.4f}\te4: {e4:.5f}\tf3:{f3:.5f}")
-        print(f"\t WMATE v:{v_m.item():.4f}\tf7: {f7:.5f}\tc4:{c4:.5f}")
-        print(f"\t BMATE v:{v_b.item():.4f}\th4: {f7:.5f}\ta6:{c4:.5f}")
-        if not os.path.exists("pretrain"):
-            os.mkdir("pretrain")
-        torch.save(chess_model.state_dict(),os.path.join("pretrain",f"{iter_n}.dict"))

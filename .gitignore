@@ -2,3 +2,6 @@
 *.pyc*
 *.dict*
 *.sos*
+*scratch*
+!scratch.py
+*ds_template.txt*

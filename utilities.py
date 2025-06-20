@@ -10,6 +10,7 @@ import chess
 import json 
 import os
 import settings 
+import math
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
 CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
@@ -118,17 +119,18 @@ def temp_scheduler(ply:int):
 def movecount_to_prob(movecount):
 
     #Prep zero vector
-    probabilities   = [0 for _ in CHESSMOVES]
+    probabilities   = [0. for _ in CHESSMOVES]
 
     #Fill in move counts
     for move,count in movecount.items():
         move_i  = MOVE_TO_I[chess.Move.from_uci(move)]
-        probabilities[move_i]   = count
+        probabilities[move_i]   += count
     
     #Return normalized 
     norm    = normalize(probabilities)
 
-    return torch.tensor(norm)
+
+    return torch.tensor(norm,dtype=torch.float)
 
 
 #Convert an evaluation from the engine (-1_000_000,1_000_000) -> (-1,1)
@@ -144,6 +146,18 @@ def clean_eval(evaluation):
 def generate_board_key(board:chess.Board):
     return " ".join(board.fen().split(" ")[:4])
 
+#   General function to interpolate an array
+#   To a smaller size  
+def reduce_arr(arr,newlen):
+
+    #Find GCF of len(arr) and len(newlen)
+    gcf         = math.gcd(len(arr),newlen)
+    mult_fact   = int(newlen / gcf) 
+    div_fact    = int(len(arr) / gcf) 
+
+    new_arr     = numpy.repeat(arr,mult_fact)
+
+    return [sum(list(new_arr[n*div_fact:(n+1)*div_fact]))/div_fact for n in range(newlen)]
 if __name__ == "__main__":
     b = chess.Board()
     b.push(chess.Move.from_uci("e2e4"))

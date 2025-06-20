@@ -594,7 +594,7 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     t0 = time.time()
     manager                 = MCTree_Handler(1,max_game_ply=8,n_iters=1600)
-    manager.load_dict('generations/gen_35.dict')
+    manager.load_dict('pram_train.pt')
     movecounts  = {}
     f,a         = plt.subplots(nrows=2,ncols=1)
     #print(mc)
@@ -615,22 +615,23 @@ if __name__ == '__main__':
     
     a[0].bar(list(movecounts.keys()),list(movecounts.values()))
 
-    Node.c = 10
-    for _ in range(50):
-        mc                  = sorted({m.uci():n for m,n in manager.eval(800).items()}.items(),key=lambda x: x[1],reverse=True)
-        move =   mc[0][0]
-        if move in movecounts:
-            movecounts[move] += 1
-        else:
-            movecounts[move] = 1
+    # Node.c = 10
+    # for _ in range(50):
+    #     mc                  = sorted({m.uci():n for m,n in manager.eval(800).items()}.items(),key=lambda x: x[1],reverse=True)
+    #     move =   mc[0][0]
+    #     if move in movecounts:
+    #         movecounts[move] += 1
+    #     else:
+    #         movecounts[move] = 1
 
-        del manager.active_trees[0]
-        manager.lookup_dict = {}
+    #     del manager.active_trees[0]
+    #     manager.lookup_dict = {}
 
-        manager.active_trees.append(MCTree(0,manager.max_game_ply,manager.n_iters,lookup_dict=manager.lookup_dict))
-        #print(  str(    mc) )
+    #     manager.active_trees.append(MCTree(0,manager.max_game_ply,manager.n_iters,lookup_dict=manager.lookup_dict))
+    #     #print(  str(    mc) )
     
-    a[1].bar(list(movecounts.keys()),list(movecounts.values()))
+    # a[1].bar(list(movecounts.keys()),list(movecounts.values()))
     f.show()
+    input("done")
     #print(f"{(time.time()-t0)/len(data):.2f}s/move")
 

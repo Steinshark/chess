@@ -18,7 +18,7 @@ for item in a[1:]:
 	try:
 		c[1] = float(c[1])
 		total += c[1]
-		if c[1] > .5:
+		if c[1] > .1:
 			elp.append((c[1],"".join(c[5:])))
 	except ValueError:
 		print("err")
