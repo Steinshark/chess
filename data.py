@@ -1,7 +1,7 @@
 import os 
 import random 
 import json 
-import chess 
+import bulletchess 
 import utilities
 import torch 
 import multiprocessing
@@ -51,7 +51,7 @@ class PositionSet(Dataset):
     def __getitem__(self,i):
         outcomes                = {'1-0':1,'0-1':-1,'1/2-1/2':0}
         fen,move,turn,outcome   = self.data[i]
-        x                       = to_64_len_str(chess.Board(fen))
+        x                       = to_64_len_str(bulletchess.Board(fen))
         probs                   = self.probs[fen]
         move_i                  = move_to_i[move]
         outcome                 = outcomes[outcome]
@@ -89,7 +89,7 @@ class StreamDS:
         #Build distribution
         distribution    = torch.zeros(1968)
         for move in moves:
-            distribution[utilities.MOVE_TO_I[chess.Move.from_uci(move)]]    += 1
+            distribution[utilities.MOVE_TO_I[bulletchess.Move.from_uci(move)]]    += 1
         distribution    = utilities.normalize_torch(distribution)
 
         #Return items
@@ -100,14 +100,22 @@ class StreamDS:
         return self.size
 
 
-def to_64_len_str(board:chess.Board):
-    keys                = ".pnbrqkPNBRQK"
-    pieces              = board.__str__().replace("\n","").replace(" ","")
-    np_arr              = numpy.asarray([keys.index(p) for p in pieces],dtype=numpy.uint8) 
-    return np_arr
+def tokenize_fen(board:bulletchess.Board,req_grad:bool):
+
+    #Check for castling
+    parts               = board.fen().split(" ")
+    castle_code         = int("K" in parts[2])*8 + int("Q" in parts[2])*4 + int("k" in parts[2])*2 + int('q' in parts[2])
+    turn_code           = 0 if parts[1] == 'w' else 1
+
+    #Get postion    
+    keys                = "-pnbrqkPNBRQK"
+    board_str           = board.__str__().replace("\n","").replace(" ","") 
+    board_tokens        = [keys.index(p) for p in board_str] + [castle_code+len(keys),turn_code+len(keys)+16]
+    tokens              = torch.tensor(board_tokens,dtype=torch.long)
+    return tokens
 
 def parse_gamefile_line(line_text:str,elo_limit=2000,time_limit=180):
-    board                           = chess.Board()
+    board                           = bulletchess.Board()
     if not line_text:
         return []
     movetext,welo,belo,tc,outcome      = line_text.split(".") 
@@ -256,7 +264,7 @@ def compute_accuracy(targets:torch.Tensor,predictions:torch.Tensor)->float:
 def observe_predictions(predictions:torch.Tensor,top_n=10,parse_legal=False)->list[tuple[str,float]]:
     
     if parse_legal:
-        gameboard   = chess.Board(fen=parse_legal)
+        gameboard   = bulletchess.Board(fen=parse_legal)
         moves       = list(gameboard.generate_legal_moves())
     move_decisions  = []
     for i,p in enumerate(predictions):
@@ -283,18 +291,18 @@ def parse_puzzles(puzzle_file:str):
             PuzzleId,fen,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl,OpeningTags = puzzle.split(",")
 
             this_puzzle     = [] 
-            board           = chess.Board(fen=fen)
+            board           = bulletchess.Board(fen=fen)
             moves           = Moves.split(' ')
             puzzle_turn     = not board.turn
 
             #Play first move (Bad)
-            board.push(chess.Move.from_uci(moves.pop(0)))
+            board.push(bulletchess.Move.from_uci(moves.pop(0)))
             record  = True 
             for move in moves:
                 if record:
                     this_puzzle.append((board.fen(),{move:1},'?'))
                 
-                board.push(chess.Move.from_uci(move))
+                board.push(bulletchess.Move.from_uci(move))
                 record = not record
 
             #Check puzzle outcome 

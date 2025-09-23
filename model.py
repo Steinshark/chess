@@ -7,7 +7,7 @@
 import torch
 import settings
 import torch.nn as nn
-import chess 
+import bulletchess 
 import data
 import numpy 
 from typing import Union 
@@ -197,45 +197,45 @@ class ChessTransformer(nn.Module):
     def __init__(self, emb_dim=256, num_layers=8, num_heads=8):
         super().__init__()
         self.n_embed            = emb_dim
-        self.embedding          = nn.Embedding(13,emb_dim)
-        self.pos_embed          = nn.Parameter(torch.randn(1,64, emb_dim))  # Learned pos enc
-        self.white_embd         = nn.Parameter(torch.randn(64,emb_dim))
-        self.black_embd         = nn.Parameter(torch.randn(64,emb_dim))
-        encoder_layer           = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=num_heads, batch_first=True)
+        self.board_embeddings   = nn.Embedding(13+16+2,emb_dim) #13 for each piece, 16 for castling possibilities, 2 for move
+ 
+        encoder_layer           = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=num_heads, batch_first=True,dim_feedforward=emb_dim*2,activation=torch.nn.functional.gelu)
         self.transformer_layers = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
+        self.final_seq_len      = 64 + 2
         self.value_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64*emb_dim, 256),
-            nn.GELU(),
-            nn.Linear(256, 1),
+            nn.Flatten(start_dim=1),
+            nn.Linear(self.final_seq_len*emb_dim, 1),
             nn.Tanh()
         )
 
         self.policy_head = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * emb_dim, 1024),
-            nn.GELU(),
-            nn.Linear(1024, 1968),    # Number of possible legal moves (from UCI move encoding)
+            nn.Flatten(start_dim=1),
+            nn.Linear(self.final_seq_len * emb_dim, 1968),
             nn.Softmax(dim=1)
         )
 
-    def forward(self, x:torch.Tensor,turn:torch.Tensor):  # x: (B, 17, 8, 8)
+    def forward(self, input_ids:torch.Tensor,stage_one:bool=True):  # x: (B, 17, 8, 8)
+
+        if stage_one:
+
+            return torch.nn.functional.softmax(torch.rand(size=(input_ids.size(0),1968),dtype=settings.DTYPE),dim=-1), torch.nn.functional.tanh(4*torch.rand(size=(1,1)))
+        
 
         #Get piece embeddings 
-        BS          = x.size(0)
-        piece_emb   = self.embedding(x.long())
-        board_emb   = self.pos_embed.repeat(BS,1,1)
-        turn_emb    = torch.where(turn.view(-1,1,1).expand(-1,64,self.n_embed)==1,self.white_embd,self.black_embd)
-        #x = x.view(B, 64, 17)
-        x           = piece_emb + board_emb + turn_emb
-        x           = self.transformer_layers(x)
+        input_embeddings:torch.Tensor   = self.board_embeddings(input_ids)
+        
 
-        value       = self.value_head(x)
-        policy      = self.policy_head(x)
+        #Pass trhough transformer stack
+        x                               = self.transformer_layers(input_embeddings)
+
+        #Pass thorugh the policy and value heads 
+        policy                  = self.policy_head(x)
+        value                   = self.value_head(x)
+
         return policy, value
 
-    def encode_fens(self,fen_batch:list[chess.Board],as_torch=False) -> Union[torch.Tensor,numpy.array]:
+    def encode_fens(self,fen_batch:list[bulletchess.Board],as_torch=False) -> Union[torch.Tensor,numpy.array]:
         as_numpy    =  numpy.asarray(list(map(data.to_64_len_str,fen_batch)),dtype=numpy.float32)
         if as_torch:
             return torch.from_numpy(as_numpy)

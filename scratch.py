@@ -7,15 +7,14 @@ import settings
 #load current model 
 cmodel  = model.ChessModel2().float()
 cmodel.load_state_dict(torch.load("curstate.pt"))
-cmodel.float()
 cmodel.eval()
 #cmodel 	= torch.jit.trace(cmodel,torch.randn((1,17,8,8)))
 #cmodel 	= torch.jit.freeze(cmodel)
-import chess 
+import bulletchess 
 
 
 
-b       = chess.Board(fen="rnbqkbnr/ppppp2p/8/5pp1/4P3/3P4/PPP2PPP/RNBQKBNR w KQkq - 0 3")
+b       = bulletchess.Board(fen="rnbqkbnr/ppppp2p/8/5pp1/4P3/3P4/PPP2PPP/RNBQKBNR w KQkq - 0 3")
 inp     = utilities.batched_fen_to_tensor([b.fen()]).float()
 
 p,v     = cmodel(inp)

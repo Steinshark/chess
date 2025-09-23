@@ -5,22 +5,25 @@ import torch
 
 #MODEL SETTINGS 
 REPR_CH                                 = 17 
-DTYPE                                   = torch.bfloat16
+N_EMBED                                 = 256
+DTYPE                                   = torch.float
+JIT_SHAPE                               = (1,8,8,N_EMBED)
+
 
 #TRAINING SETTINGS 
-MAX_PLY                                 = 200   #(100 move/game)
+MAX_PLY                                 = 40   #Start with (50 move/game) to start bootstrapping
 DATASIZE                                = 800
 SEARCH_ITERS                            = 450
 PARALLEL_TREES                          = 4
 TRAIN_EVERY                             = 16384
-BS                                      = 4096
+BS                                      = 1024
 LR                                      = .0001
-BETAS                                   = (.75,.99)
+BETAS                                   = (.9,.99)
 
 
 #TREE SEARCH SETTINGS
 DIR_A                                   = .3
-DIR_E                                   = .5
+DIR_E                                   = .25
 
 
 #CHESS SETTINGS                 

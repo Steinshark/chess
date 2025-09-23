@@ -5,7 +5,7 @@
 
 
 from node import Node 
-import chess 
+import bulletchess 
 import time 
 import model 
 import torch
@@ -15,7 +15,7 @@ from collections import OrderedDict
 import settings
 
 
-#Creates an instance of a Monte-Carlo style Tree
+#Creates an instance of a Monte-Carlo searchable Tree
 #   to develop an evaluation of a given position, the tree
 #   functions as follows:
 #       - start at the root position (the one to be evaluated)
@@ -32,9 +32,9 @@ class MCTree:
 
         #Check if a fen is provided, otherwise use the chess starting position
         if from_fen:
-            self.board              = chess.Board(fen=from_fen)
+            self.board              = bulletchess.Board.from_fen(from_fen)
         else:
-            self.board              = chess.Board()
+            self.board              = bulletchess.Board()
 
         #Define the root node (the one that will be evaluatioed) and set 
         #search variables
@@ -55,9 +55,10 @@ class MCTree:
         self.device                 = device
 
         #Create static memory locations on GPU and CPU to reduce memory allocations    
+        #self.static_tensorGPU       = torch.empty(size=settings.JIT_SHAPE,dtype=torch.float,requires_grad=False,device=self.device)
         self.static_tensorGPU       = torch.empty(size=settings.JIT_SHAPE,dtype=torch.float,requires_grad=False,device=self.device)
-        self.static_tensorCPU_P     = torch.empty(settings.N_CHESS_MOVES,dtype=torch.float,requires_grad=False,device=torch.device('cpu')).pin_memory()
-        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu')).pin_memory()
+        self.static_tensorCPU_P     = torch.empty(settings.N_CHESS_MOVES,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
+        self.static_tensorCPU_V     = torch.empty(1,dtype=torch.float,requires_grad=False,device=torch.device('cpu'))#.pin_memory()
 
 
 
@@ -66,14 +67,15 @@ class MCTree:
     #                   - a string specifying a file containing a state_dict
     #                   - a full model (subclass of torch.nn.Module)
     def load_dict(self,state_dict):
-        self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).to(self.device)
 
 
         if isinstance(state_dict,str):
+            self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).to(self.device)
             if not state_dict == '':
                 self.chess_model.load_state_dict(torch.load(state_dict))
 
         elif isinstance(state_dict,OrderedDict):
+            self.chess_model            = model.ChessModel(**settings.MODEL_KWARGS).to(self.device)
             self.chess_model.load_state_dict(state_dict)
 
         elif isinstance(state_dict,torch.nn.Module):
@@ -87,18 +89,27 @@ class MCTree:
         #As of not, not retracing due to memory issues??
         self.chess_model                    = self.chess_model.eval().to(self.device).type(settings.DTYPE)
 
+        for parameter in self.chess_model.parameters():
+            parameter.requires_grad_(False)
+
         torch.backends.cudnn.enabled        = True
-        self.chess_model 			        = torch.jit.trace(self.chess_model,[torch.randn(size=settings.JIT_SHAPE,device=self.device,dtype=settings.DTYPE)])
-        self.chess_model 			        = torch.jit.freeze(self.chess_model)
-        
+        example_input                       = torch.randint(0,13+16+2,size=(1,66),device=self.device,dtype=torch.long)
+        #self.chess_model                    = torch.jit.trace(self.chess_model,example_input)
+        #self.chess_model                    = torch.jit.freeze(self.chess_model)
+        #self.chess_model                    = torch.jit.optimize_for_inference(self.chess_model)
 
     #Perform one exploration down the tree
     #   If 'initial' is set, then add dirichlet noise to 
     #   children of the root node, which adds noise
     #   when we want additional exploration for training 
     #   purposes
-    def perform_iter(self,initial=False):
+    def perform_iter(self,initial=False,debug=False):
         
+
+        if debug:
+            input(f"start with {self.root.children}")
+
+        #We no longer apply dirichlet - SIKE
         #If initial and root already has pre-populated values, apply dirichelt before descending
         if initial and self.root.children:
             dirichlet           = numpy.random.dirichlet([self.dirichlet_a for _ in self.root.children]) 
@@ -117,8 +128,12 @@ class MCTree:
         curnode             = self.root 
         while not curnode.is_leaf():
             curnode         = curnode.pick_best_child()
-            self.board.push(curnode.move)
+            self.board.apply(curnode.move)
             self.curdepth   += 1
+            #print(f"turn now {self.board.turn}")
+
+        if debug:
+            input(f"Down to {curnode}")
 
         #Expand current working node
         self.working_node   = curnode 
@@ -145,7 +160,48 @@ class MCTree:
         
         #Undo moves 
         for _ in range(self.curdepth):
-            self.board.pop()
+            self.board.undo()
+
+        self.curdepth = 0
+    
+
+    #Perform an exploration down a given child node
+    #   Used in conjunction with the Gumbel noise 
+    #   optimization.
+    def iter_child(self,node:Node):
+        
+
+        #Get to bottom of tree via traversal algorithm 
+        curnode             = node 
+        self.board.apply(curnode.move)
+        self.curdepth       = 1 
+
+        while not curnode.is_leaf():
+            curnode         = curnode.pick_best_child()
+            self.board.apply(curnode.move)
+            self.curdepth   += 1
+            print(f"down in depth")
+        #Expand current working node
+        self.working_node   = curnode 
+        move_outcome        = self.working_node.expand(self.board,
+                                                       self.curdepth,
+                                                       self.chess_model,
+                                                       self.max_game_ply,
+                                                       static_gpu=self.static_tensorGPU,
+                                                       static_cpu_p=self.static_tensorCPU_P,
+                                                       static_cpu_v=self.static_tensorCPU_V,
+                                                       lookup_dict=self.explored_nodes,
+                                                       common_nodes=self.common_nodes)
+
+
+        #Update score for all nodes of this position
+        for node in self.common_nodes[self.board.fen()]:
+            node.bubble_up(move_outcome)
+        
+        #Undo moves 
+        for _ in range(self.curdepth):
+            self.board.undo()
+
         self.curdepth = 0
     
 
@@ -153,7 +209,7 @@ class MCTree:
     #   children. Dirichlet noise is always added to root.  
     def evaluate_root(self,n_iters=1000):
 
-        self.common_nodes   = {}
+        self.common_nodes:dict[str,Node]   = {}
         
         #First iter will add Dirichlet noise to prior Ps of root children
         self.perform_iter(initial=True)
@@ -162,8 +218,36 @@ class MCTree:
         for _ in range(n_iters):
             self.perform_iter()
                     
-        return {c.move:c.n_visits for c in self.root.children}
+        return {str(c.move):c.n_visits for c in self.root.children}
     
+
+    #Begins the search down the root using Gumbel noise optimization instead of 
+    #   adding Dirichlet noise.
+    def evaluate_root_with_gumbel(self,n_iters=1000,k=50):
+        
+        self.common_nodes       = {}
+
+        input(f"board is {self.board}")
+        #ROllout once   
+        if not self.root.children:
+            self.iter_child(self.root)
+
+        print(f"board is now {self.board}")
+
+        #Build the gumbel priors 
+        probs                   = numpy.array([c.prior_p for c in self.root.children])
+        gumbels                 = -numpy.log(-numpy.log(numpy.random.rand(len(probs))))
+        scores                  = (probs + 1e-5) + gumbels 
+
+        explore_nodes           = numpy.argsort(scores)[-k:]
+        #Rollout only these half 
+        for node_i in explore_nodes:
+            child               = self.root.children[node_i]
+            self.iter_child(child)
+        
+        for _ in range(n_iters):
+            self.perform_iter()
+
 
     #This function will add additional compute to the tree. 
     def add_compute(self,n_iters):
@@ -177,7 +261,7 @@ class MCTree:
     #Applys the given move to the root 
     #   and descends to corresponding node.
     #   Keeps prior calculations down this line  
-    def make_move(self,move:chess.Move):
+    def make_move(self,move:bulletchess.Move):
 
         #Check if move actually in children
         if self.root.n_visits == 0:
@@ -188,11 +272,12 @@ class MCTree:
 
         
         #Make move 
-        self.board.push(move)
+        self.board.apply(move)
 
         #check gameover 
-        if self.board.is_game_over() or self.board.ply() > self.max_game_ply:
-            return Node.RESULTS[self.board.result()]
+        gameover = self.game_over()
+        if gameover is not None:
+            return gameover
         
         self.chosen_branch  = self.root.traverse_to_child(move)
         del self.root 
@@ -237,58 +322,48 @@ class MCTree:
         del self.static_tensorCPU_V
 
 
-
-
-#DEBUG puporses
-if __name__ == '__main__':
-    t0  = time.time()
-    i       = 0
-    gameboard   = chess.Board(fen="rnbq1kr1/1ppp1ppp/4p3/P4n2/2PP4/2N2NP1/1P2PPBP/R1BQK2R w KQ - 5 10")
-    while True:
-
-        command = "yes"
-        #Apply Kyle move 
-        move    = chess.Move.from_uci(input("move uci: "))
-        gameboard.push(move)
+    #Checks if the game is over for the given board.
+    #   return None if not
+    def game_over(self):
+        if self.board in bulletchess.FORCED_DRAW or self.board.fullmove_number > self.max_game_ply:
+            return 0 
         
-
-        #Prep engine
-        mcTree  = MCTree(from_fen=gameboard.fen())
-        mcTree.common_nodes = {}
-        print(f"\n\nEngines Turn")
-        print(mcTree.board)
-        print(f"\n\n")
-        while "y" in command or "Y" in command:
-            i += 1
-            mcTree.perform_iter()
+        elif self.board in bulletchess.CHECKMATE:
+            return 1 if self.board.turn == bulletchess.BLACK else -1
+        
+        else:
+            return None 
 
 
-            if i % 50000 == 0:
-                
-                #sample and make move 
-                top_move        = None
-                top_visits      = -1 
-                nodes           = {c.move:c.n_visits for c in mcTree.root.children}
-                for move,n_visits in nodes.items():
-                    if n_visits > top_visits:
-                        top_move    = move 
-                        top_visits  = n_visits
+#DEBUG purposes
+if __name__ == '__main__':
+    import random 
+    from model import ChessTransformer
+    dummy_model = ChessTransformer(emb_dim=settings.N_EMBED,num_layers=12,num_heads=8)
+    dummy_model.eval()
+    for param in dummy_model.parameters():
+        param.requires_grad_(False)
 
-                print(f"top move: {top_move}")
-                print(f"{nodes}")
-                command     = input(f"cont?: ")
+    dummy_model.bfloat16()
 
-        gameboard.push(top_move)
-       
-        print(f"\n\n\nBoard now:")
-        print(gameboard)
-        print(f"\nKyles Turn")
+    tree    = MCTree()
+    #tree = mctree.MCTree(from_fen='rnbqkbnr/ppppp2p/8/5pp1/4P3/P7/1PPP1PPP/RNBQKBNR w KQkq g6 0 3')
+    tree.load_dict(dummy_model)
 
-    
-        # print(mcTree)
-        # print(f"\n\n\n")
-    #print(f"evals:")
-    print({c.move:c.n_visits for c in mcTree.root.children})
-    print(f"time in {(time.time()-t0):.2f}s")
-    exit()
-    
+    n_games         = 2
+    collections     = []
+    t0              = time.time()
+    n_moves         = 0 
+    for _ in range(n_games):
+        game_experiences    = [] 
+
+        while tree.game_over() is None:
+            move_counts     = tree.evaluate_root(200)
+            
+            #input(move_counts)
+            move_probs      = numpy.asarray(list(move_counts.values()))
+            next_move       = random.choices(list(move_counts.keys()),weights=move_probs,k=1)[0]
+
+            
+            game_experiences.append([tree.board.fen(),move_counts,next_move,None])
+            tree.make_move(bulletchess.Move.from_uci(next_move))   

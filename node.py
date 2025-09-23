@@ -4,12 +4,12 @@
 
 
 
-import chess
+import bulletchess
 import torch
 import utilities
 import numpy
 import math
-
+import data 
 
 class Node:
 
@@ -24,13 +24,14 @@ class Node:
 
 
 
-    def __init__(self,move:chess.Move,parent,prior_p:float|torch.Tensor,depth,turn:bool):
+    def __init__(self,move:bulletchess.Move,parent,prior_p:float|torch.Tensor,depth,turn:bool):
 
         #Postition related vars
         self.move               = move
-        self.turn               = 1 if turn else -1
-        self.top_score          = -1_000_000 if turn else 1_000_000
-        self.op                 = self.maximize if turn else self.minimize
+        self.turn               = 1 if turn == bulletchess.WHITE else -1
+        self.top_score          = -1_000_000 if self.turn == 1 else 1_000_000
+        self.op                 = {1:self.maximize,-1:self.minimize}[self.turn]
+        #print(f"generated node with turn {self.turn}")
         self.depth              = depth                         #depth from root node
 
         #Tree related vars
@@ -40,19 +41,19 @@ class Node:
 
         #Node related vars and such
         self.n_visits           = 0
-        self.prior_p            = prior_p
+        self.prior_p            = float(prior_p)
         self.n_wins             = 0
         self.cumulative_score   = 0
         self.key                = None
 
         #precompute val for score computation (good speedup)
-        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
+        self.precompute         = -1*self.turn*self.c * self.prior_p
 
 
     #Re-pre-compute (when applying dirichlet after first expansion from root, must do this or
     # pre compute will be off)
     def pre_compute(self):
-        self.precompute         = -1*self.turn*self.c * float(self.prior_p)
+        self.precompute         = -1*self.turn*self.c*self.prior_p
 
 
     #Make mctree code cleaner by wrapping this
@@ -73,11 +74,11 @@ class Node:
     #Picks best child from the perspective of the node before it.
     #   If current node is turn 1, then looking to maximize next node score
     def pick_best_child(self):
-
+        #print(f"using operation {self}")
         #Set top and best score vars for sort
         top_node    = None
         best_score  = self.top_score
-
+        #print(f"use top score {best_score}")
         #Traverse and find best next node
         for package in [(node,node.get_score()) for node in self.children]:
             curnode,score  = package
@@ -85,15 +86,19 @@ class Node:
                 best_score      = score
                 top_node        = curnode
 
-        # if top_node is None:
-        #     input([(node,node.get_score()) for node in self.children])
+
+        if top_node is None:
+            print(f"I think im {self.turn}, using {self.op}")
+            input([(node,node.get_score()) for node in self.children])
 
         return top_node
 
 
     #Score is evaluated in a revised PUCT manner. Uses average result as well as exploration tendency and move counts
     def get_score(self):
-        return (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
+        output_score    = (self.cumulative_score / (self.n_visits+1)) + self.precompute * (math.sqrt(self.parent.n_visits) / (self.n_visits+1))
+
+        return output_score
 
 
     #Return just the q_score (for training)
@@ -108,7 +113,7 @@ class Node:
 
     #Performs "rollout" i.e. returns the network evaluation of the postiion.
     #Uses a lookup dictionary based on position fen to avoid redoing work
-    def run_rollout(self,board:chess.Board,model:torch.nn.Module,board_key:str,lookup_dict:dict,moves:list,static_gpu:torch.Tensor,static_cpu_p:torch.Tensor,static_cpu_v:torch.Tensor):
+    def run_rollout(self,board:bulletchess.Board,model:torch.nn.Module,board_key:str,lookup_dict:dict,moves:list,static_gpu:torch.Tensor,static_cpu_p:torch.Tensor,static_cpu_v:torch.Tensor):
 
         #Check dictionary
         if board_key in lookup_dict:
@@ -119,31 +124,37 @@ class Node:
             with torch.no_grad():   #no grad! (obviously)
 
                 #Representation as a (bs,19,8,8) tensor
-                board_repr              = utilities.batched_fen_to_tensor([board_key]).float()
+                input_ids               = data.tokenize_fen(board,req_grad=False)
+
+                #if len(input_ids.size()) == 1:
+                input_ids.unsqueeze_(dim=0)
 
                 #Perform copy to static memory in GPU (large speedup if using GPU)
-                static_gpu.copy_(board_repr)
+                #static_gpu.copy_(board_repr)
 
                 #Get model probability distrubtion and evaluation of the position
-                probs,eval              = model.forward(static_gpu)
+                probs,eval              = model.forward(input_ids)
 
                 #Bring it all over to the cpu (Also large speedup due to copy to static variables -no need to reallocate)
-                static_cpu_p.copy_(probs[0],non_blocking=True)
-                static_cpu_v.copy_(eval[0])
+                # static_cpu_p.copy_(probs[0],non_blocking=True)
+                # static_cpu_v.copy_(eval[0])
+                
                 #Convert to numpy and renormalize
-                revised_numpy_probs     = numpy.take(static_cpu_p.numpy(),[utilities.MOVE_TO_I[move] for move in moves])
+                revised_numpy_probs     = numpy.take(probs[0].numpy(),[utilities.MOVE_TO_I[move] for move in moves])
                 revised_numpy_probs     = utilities.normalize_numpy(revised_numpy_probs,1)
 
                 #Add to dictionary and just return from dictionary
-                lookup_dict[board_key]  = (revised_numpy_probs,static_cpu_v.numpy())
+                #lookup_dict[board_key]  = (revised_numpy_probs,static_cpu_v.item())
+                lookup_dict[board_key]  = (revised_numpy_probs,eval[0].item())
 
                 return lookup_dict[board_key]
 
-
+    def helper(board):
+        return
     #Expand ocurrs for leaf nodes. Checks if this position has been reached before (and at the same depth). If so, it will
     #   perform the bubble-up for each node and provide even more compute capability. Observed to only kick into effect
     #   at around 4k explorations
-    def expand(self,board:chess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,static_gpu,static_cpu_p,static_cpu_v,lookup_dict={},common_nodes={}):
+    def expand(self,board:bulletchess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,static_gpu,static_cpu_p,static_cpu_v,lookup_dict={},common_nodes={}):
 
         #Fen used as key
         position_key                    = board.fen()
@@ -155,23 +166,34 @@ class Node:
             common_nodes[position_key]  = {self}
 
         #Check end state of node. either return actual outcome or perform computation
-        if board.is_game_over() or board.ply() > max_depth:
-            return self.RESULTS[board.result()]
+        if board in bulletchess.FORCED_DRAW or board.fullmove_number > max_depth:
+            return 0.0
+        
+        #Check for a winning condition - whoever's turn it ISNT has won with this move
+        if board in bulletchess.CHECKMATE:  
+            if board.turn == bulletchess.WHITE:
+                return -1.0 
+            elif board.turn == bulletchess.BLACK: 
+                return 1.0 
+            else:
+                input(f"help me! {board.turn}")
 
-        #Run "rollout"
-        moves                           = list(board.generate_legal_moves())
+        #Run rollout of an unexplored position
+        moves                           = board.legal_moves()
         probabilities,rollout_val       = self.run_rollout(board,chess_model,position_key,lookup_dict,moves,static_gpu,static_cpu_p,static_cpu_v)
 
         #Create and populate child nodes
-        self.children               = [Node(move,self,probabilities[i],depth+1,not board.turn) for i,move in enumerate(moves)]
+        
+        newturn                         = {1:bulletchess.BLACK,-1:bulletchess.WHITE}[self.turn]
+        self.children                   = [Node(move,self,probabilities[i],depth+1,newturn) for i,move in enumerate(moves)]
 
         return rollout_val
 
 
     #Passes up the value recieved at the leaf and updates the visit count
     def bubble_up(self,outcome):
-        self.cumulative_score += outcome
-        self.n_visits           += 1
+        self.cumulative_score           += outcome
+        self.n_visits                   += 1
 
         if not self.parent is None:
             self.parent.bubble_up(outcome)
@@ -185,24 +207,24 @@ class Node:
     #Used once a move is pushed onto the actual game board.
     #   This will be called on MCTree root to traverse to the move played and
     #   keep the computations
-    def traverse_to_child(self,move:chess.Move):
+    def traverse_to_child(self,move:bulletchess.Move):
         for child in self.children:
             if child.move == move:
                 return child
-        return -1
+        raise ValueError(f"Move {move} was not found")
 
 
     #A node is represented as the sequence of moves that kets it there
     def __repr__(self):
-        if self.parent == None:
+        if self.parent is None:
             return "root"
-        return str(self.parent) + " -> " + str(self.move)
+        return str(self.parent) + " -> " + str(self.move) + f": {self.get_score():.2f}"
 
 
 
 if __name__ == '__main__':
 
-    board   = chess.Board()
+    board   = bulletchess.Board()
     root    = Node(None,None,0,board.turn)
 
 

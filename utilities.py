@@ -6,7 +6,7 @@
 
 import torch
 import numpy 
-import chess 
+import bulletchess 
 import json 
 import os
 import settings 
@@ -14,8 +14,8 @@ import math
 
 PIECES 	        = {"R":0,"N":1,"B":2,"Q":3,"K":4,"P":5,"r":6,"n":7,"b":8,"q":9,"k":10,"p":11}
 CHESSMOVES      = json.loads(open("chessmoves.txt","r").read())
-MOVE_TO_I       = {chess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
-I_TO_MOVE       = {i:chess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
+MOVE_TO_I       = {bulletchess.Move.from_uci(move):i for i,move in enumerate(CHESSMOVES)}
+I_TO_MOVE       = {i:bulletchess.Move.from_uci(move) for i,move in enumerate(CHESSMOVES)}
 
 
 #Add Color to terminal output
@@ -44,24 +44,28 @@ def fen_processor(fen:str):
 def fen_to_tensor_lite(fen_info:list):
     position,turn,castling  = fen_info
 
-    this_board              = numpy.zeros(shape=(6+6+4+1,8,8),dtype=numpy.int8)
+    code                    = [0,0,0,0]
+
+    this_board              = numpy.zeros(shape=(8,8),dtype=numpy.int8)
 
     #Place pieces
     for rank_i,rank in enumerate(reversed(position)):
         for file_i,piece in enumerate(rank): 
             if not piece == "e":
-                this_board[PIECES[piece],rank_i,file_i]	= 1
+                this_board[rank_i,file_i]	= PIECES[piece]
     
-    #Place castling 
-    this_board[-5,:,:]      = 1 if "K" in castling else 0            
-    this_board[-4,:,:]      = 1 if "Q" in castling else 0            
-    this_board[-3,:,:]      = 1 if "k" in castling else 0            
-    this_board[-2,:,:]      = 1 if "q" in castling else 0            
+    #Place castling '
+    # todo: ADD BACK CASTLING
+    code[0]      = 1 if "K" in castling else 0            
+    code[1]      = 1 if "Q" in castling else 0            
+    code[2]      = 1 if "k" in castling else 0            
+    code[3]      = 1 if "q" in castling else 0            
+    castling_code           = code[0]*(2**3) + code[1]*(2**2) + code[2]*(2**1) + code[3]*(2**0)
 
     #Place turn 
-    this_board[-1,:,:]      = 1 if turn == "w" else -1
+    turn                    = 1 if turn == 'w' else 0
 
-    return this_board
+    return this_board, turn, castling_code
 
 
 #Process a batch of tensors
@@ -75,10 +79,23 @@ def batched_fen_to_tensor(fenlist) -> torch.Tensor:
     #Clean fens
     fen_info_list   = map(fen_processor,fenlist)
 
-    #get numpy lists 
-    numpy_boards    = list(map(fen_to_tensor_lite,fen_info_list))
-    numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.float32)
+    
 
+    #get numpy lists 
+    board_reprs     = list(map(fen_to_tensor_lite,fen_info_list))
+    #numpy_boards    = numpy.asarray(numpy_boards,dtype=numpy.float32)
+
+    boards          = []
+    turns           = []
+    castling_rights = [] 
+
+    for item in board_reprs:
+        boards.append(item[0])
+        turns.append(item[1])
+        castling_rights.append(item[2])
+
+    #Make boards 
+    return numpy.asarray(boards), turns, castling_rights
 
     return torch.from_numpy(numpy_boards).type(settings.DTYPE)
 
@@ -123,7 +140,7 @@ def movecount_to_prob(movecount):
 
     #Fill in move counts
     for move,count in movecount.items():
-        move_i  = MOVE_TO_I[chess.Move.from_uci(move)]
+        move_i  = MOVE_TO_I[bulletchess.Move.from_uci(move)]
         probabilities[move_i]   += count
     
     #Return normalized 
@@ -143,7 +160,7 @@ def clean_eval(evaluation):
 
 
 #Generate the key for a given chess Board 
-def generate_board_key(board:chess.Board):
+def generate_board_key(board:bulletchess.Board):
     return " ".join(board.fen().split(" ")[:4])
 
 #   General function to interpolate an array
@@ -158,10 +175,12 @@ def reduce_arr(arr,newlen):
     new_arr     = numpy.repeat(arr,mult_fact)
 
     return [sum(list(new_arr[n*div_fact:(n+1)*div_fact]))/div_fact for n in range(newlen)]
+
+
 if __name__ == "__main__":
-    b = chess.Board()
-    b.push(chess.Move.from_uci("e2e4"))
-    b.push(chess.Move.from_uci("e7e5"))
+    b = bulletchess.Board()
+    b.apply(bulletchess.Board.from_uci("e2e4"))
+    b.apply(bulletchess.Board.from_uci("e7e5"))
 
     out2 = batched_fen_to_tensor([b.fen()])
 
