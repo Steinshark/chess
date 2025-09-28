@@ -9,7 +9,7 @@ import torch
 import utilities
 import numpy
 import math
-import data 
+import chess_data 
 
 class Node:
 
@@ -124,9 +124,9 @@ class Node:
             with torch.no_grad():   #no grad! (obviously)
 
                 #Representation as a (bs,19,8,8) tensor
-                input_ids               = data.tokenize_fen(board,req_grad=False)
+                input_ids               = chess_data.tokenize_fen(board,req_grad=False)
 
-                #if len(input_ids.size()) == 1:
+                #Add batch dimension
                 input_ids.unsqueeze_(dim=0)
 
                 #Perform copy to static memory in GPU (large speedup if using GPU)
@@ -149,9 +149,12 @@ class Node:
 
                 return lookup_dict[board_key]
 
+
     def helper(board):
         return
-    #Expand ocurrs for leaf nodes. Checks if this position has been reached before (and at the same depth). If so, it will
+    
+    
+    #Expand occurs for leaf nodes. Checks if this position has been reached before (and at the same depth). If so, it will
     #   perform the bubble-up for each node and provide even more compute capability. Observed to only kick into effect
     #   at around 4k explorations
     def expand(self,board:bulletchess.Board,depth:int,chess_model:torch.nn.Module,max_depth:int,static_gpu,static_cpu_p,static_cpu_v,lookup_dict={},common_nodes={}):
@@ -183,7 +186,6 @@ class Node:
         probabilities,rollout_val       = self.run_rollout(board,chess_model,position_key,lookup_dict,moves,static_gpu,static_cpu_p,static_cpu_v)
 
         #Create and populate child nodes
-        
         newturn                         = {1:bulletchess.BLACK,-1:bulletchess.WHITE}[self.turn]
         self.children                   = [Node(move,self,probabilities[i],depth+1,newturn) for i,move in enumerate(moves)]
 

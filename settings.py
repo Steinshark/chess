@@ -5,13 +5,13 @@ import torch
 
 #MODEL SETTINGS 
 REPR_CH                                 = 17 
-N_EMBED                                 = 256
+N_EMBED                                 = 128
 DTYPE                                   = torch.float
 JIT_SHAPE                               = (1,8,8,N_EMBED)
 
 
 #TRAINING SETTINGS 
-MAX_PLY                                 = 40   #Start with (50 move/game) to start bootstrapping
+MAX_PLY                                 = 55   #Start with (50 move/game) to start bootstrapping
 DATASIZE                                = 800
 SEARCH_ITERS                            = 450
 PARALLEL_TREES                          = 4

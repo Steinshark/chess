@@ -1,0 +1,29 @@
+.hero {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;   /* center horizontally */
+    justify-content: center;
+    margin: 3rem 0;        /* spacing above/below */
+    color: #fff8dc;
+    
+  }
+.hero-img {
+  width: 50%;          /* width of image */
+  max-width: 90%;        /* responsive */
+  height: auto;          /* keep aspect ratio */
+  border-radius: 16px;   /* rounded corners */
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3); /* subtle lift */
+  margin-bottom: 1.5rem; /* spacing to heading */
+}
+
+.hero h1 {
+  font-size: 2rem;
+  margin: 0.25rem 0;
+  color:#fff8dc;
+}
+
+.hero p {
+    font-size: 1.25rem;
+    color:#fff8dc;
+}

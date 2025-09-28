@@ -8,11 +8,12 @@ import multiprocessing
 import math 
 import numpy
 from torch.utils.data import Dataset
-
+import torch 
 
 #Load chess moves 
 move_to_i           = {uci:i for i, uci in enumerate(json.loads(open("chessmoves.txt",'r').read()))}
 i_to_move           = {move_to_i[uci]:uci for uci in move_to_i}
+
 class probPreSet:
 
     def __init__(self,move_visits):
@@ -30,16 +31,29 @@ class probPreSet:
 
 class ChessSet:
 
-    def __init__(self,positions_map):
+    def __init__(self,fpath:str):
 
-        self.data           = [(position,utilities.normalize_numpy(pack[0]),pack[1]/pack[0].sum(),pack[0].sum()) for position,pack in positions_map.items()]
-        random.shuffle(self.data)
+        self.data           = assemble_data(fpath)
+
+        for i in range(len(self.data)):
+            dataitem        = self.data[i]
+            x               = tokenize_fen(dataitem[0],True)
+            counts          = torch.tensor(legal_probs_to_full(dataitem[1]),dtype=torch.float)
+            pi              = counts / counts.sum()
+            
+
+            chosen_move     = torch.tensor(move_to_i[dataitem[2]],dtype=torch.long)
+            z               = torch.tensor(dataitem[3],dtype=torch.float)
+
+            self.data[i]    = (x,pi,chosen_move,z)
+
     def __getitem__(self,i):
         return self.data[i]
     
     def __len__(self):
         return len(self.data)
     
+
 
 class PositionSet(Dataset):
 
@@ -100,9 +114,12 @@ class StreamDS:
         return self.size
 
 
-def tokenize_fen(board:bulletchess.Board,req_grad:bool):
+def tokenize_fen(board:bulletchess.Board|str,req_grad:bool):
 
     #Check for castling
+    if isinstance(board,str):
+        board           = bulletchess.Board.from_fen(board)
+    
     parts               = board.fen().split(" ")
     castle_code         = int("K" in parts[2])*8 + int("Q" in parts[2])*4 + int("k" in parts[2])*2 + int('q' in parts[2])
     turn_code           = 0 if parts[1] == 'w' else 1
@@ -111,8 +128,23 @@ def tokenize_fen(board:bulletchess.Board,req_grad:bool):
     keys                = "-pnbrqkPNBRQK"
     board_str           = board.__str__().replace("\n","").replace(" ","") 
     board_tokens        = [keys.index(p) for p in board_str] + [castle_code+len(keys),turn_code+len(keys)+16]
-    tokens              = torch.tensor(board_tokens,dtype=torch.long)
+    tokens              = torch.tensor(board_tokens,dtype=torch.long)#,requires_grad=req_grad)
     return tokens
+
+
+def legal_probs_to_full(move_counts:dict[str:int]):
+
+    total_move_counts   = numpy.zeros(shape=(1968,),dtype=numpy.int16)
+
+    for move,visits in move_counts.items():
+        
+        move_uci        = move 
+        move_i          = move_to_i[move_uci]
+
+        total_move_counts[move_i]   = visits 
+
+    return total_move_counts
+
 
 def parse_gamefile_line(line_text:str,elo_limit=2000,time_limit=180):
     board                           = bulletchess.Board()
@@ -260,6 +292,28 @@ def compute_accuracy(targets:torch.Tensor,predictions:torch.Tensor)->float:
     return len(max_target_indices[max_target_indices==max_pred_indices]) / max_pred_indices.shape[0]
 
 
+def assemble_data(fpath:str):
+
+    data    = [] 
+    dataset = [] 
+
+    for fname in os.listdir(fpath):
+        if not ".json" in fname:
+            continue
+        
+        fname   = os.path.join(fpath,fname)
+
+        #grab json stuff 
+        with open(fname,'r') as readfile:
+            data += json.loads(readfile.read())
+
+
+
+    
+    print(f"grabbed {len(data)} from {len(os.listdir(fpath))} files")
+
+    return data
+
 #Parse legal with either be 'False' or it will be the fen of the position
 def observe_predictions(predictions:torch.Tensor,top_n=10,parse_legal=False)->list[tuple[str,float]]:
     
@@ -326,18 +380,20 @@ def parse_puzzles(puzzle_file:str):
 
 
 if __name__ == "__main__":
-    pds     = parse_puzzles("C:/data/chess/puzzles/puzzles.csv")
-    print(f"created {len(pds)} datapoints")
-    #exit()
-    #create_ds_from_redo("C:/data/chess/game_files",save_thresh=131072,elo_limit=1900,time_limit=180)   
-    ds      = combine_ds(prune_every=25_000_000)
-    ds      = ds + pds
-    random.shuffle(ds)
-    print(len(ds))
-    test    = ds[:4096]
-    train   = ds[4096:]
-    with open("C:/gitrepos/chess/ds_template_train2.txt",'w') as trainfile, open("C:/gitrepos/chess/ds_template_test2.txt",'w') as testfile:
-        trainfile.write(json.dumps(train))
-        testfile.write(json.dumps(test))
+    # pds     = parse_puzzles("C:/data/chess/puzzles/puzzles.csv")
+    # print(f"created {len(pds)} datapoints")
+    # #exit()
+    # #create_ds_from_redo("C:/data/chess/game_files",save_thresh=131072,elo_limit=1900,time_limit=180)   
+    # ds      = combine_ds(prune_every=25_000_000)
+    # ds      = ds + pds
+    # random.shuffle(ds)
+    # print(len(ds))
+    # test    = ds[:4096]
+    # train   = ds[4096:]
+    # with open("C:/gitrepos/chess/ds_template_train2.txt",'w') as trainfile, open("C:/gitrepos/chess/ds_template_test2.txt",'w') as testfile:
+    #     trainfile.write(json.dumps(train))
+    #     testfile.write(json.dumps(test))
 
-    exit()
+    # exit()
+
+    assemble_data("C:/code/chess/data")

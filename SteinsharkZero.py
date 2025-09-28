@@ -6,48 +6,50 @@ import random
 import time 
 import json 
 import bulletchess 
+import torch
 
 
-dummy_model = ChessTransformer(emb_dim=settings.N_EMBED,num_layers=8,num_heads=8)
-tree    = mctree.MCTree()
-tree.load_dict(dummy_model)
 
-def runcode(tree:mctree.MCTree):
+def runcode(current_epoch:int):
     #Instantiate model 
 
     #Build tree 
-
-    n_games         = 128
-    collections     = []
+    n_games         = 1
+    dataset         = []
     t0              = time.time()
-    n_moves         = 0 
     for _ in range(n_games):
-        game_experiences    = [] 
-
-        while tree.game_over() is None:
-            move_counts     = tree.evaluate_root(400)
-            move_probs      = numpy.asarray(list(move_counts.values()))
-            next_move       = random.choices(list(move_counts.keys()),weights=move_probs,k=1)[0]
-            
-            game_experiences.append([tree.board.fen(),move_counts,next_move,None])
-            tree.make_move(bulletchess.Move.from_uci(next_move))   
-            
         
-            #print(f"{(time.time()-t0)/len(game_experiences):.2f}s/move")
-
-        #Update experiences
-        game_result     = tree.game_over()
-        for i in range(len(game_experiences)):
-            game_experiences[i][-1] = game_result
-            collections.append(game_experiences[i])
-
-        n_moves += tree.board.halfmove_clock
+        #Build and load model
+        model   = ChessTransformer(128,4,12,4)
+        model.load_state_dict(torch.load(f'C:/code/chess/models/ep{current_epoch}.pt'))
         tree    = mctree.MCTree()
-        tree.load_dict(dummy_model)
+        tree.load_dict(model)
 
-        print(f"{len(collections)/(time.time()-t0) :.2f}moves/sec -> {game_result}")
+        try:
+            game_experiences    = [] 
 
+            while tree.game_over() is None:
+                tree.evaluate_root(400)
+                next_move       = tree.sample_move(temp=.7)
+                game_experiences.append([tree.board.fen(),tree.counts,next_move,None])
+                tree.make_move(bulletchess.Move.from_uci(next_move))   
+
+            #Update experiences
+            game_result     = tree.game_over()
+            for i in range(len(game_experiences)):
+                game_experiences[i][-1] = game_result
+                dataset.append(game_experiences[i])
+
+            del tree #attempt to clear some memory
+
+            print(f"\t{len(game_experiences)} moves\t{len(game_experiences)/(time.time()-t0) :.2f}moves/sec -> {game_result}")
+        except ValueError:
+            pass
+        
     with open(f"data/{random.randint(1_000_000_000,9_999_999_999)}.json",'w') as writefile:
-        writefile.write(json.dumps(collections))
+        writefile.write(json.dumps(dataset))
 
-runcode(tree)
+
+for _ in range(32):
+    print(f"\n\nStart new game iteration")
+    runcode(2)   

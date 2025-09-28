@@ -8,9 +8,10 @@ import torch
 import settings
 import torch.nn as nn
 import bulletchess 
-import data
+import chess_data
 import numpy 
 from typing import Union 
+from collections import OrderedDict
 
 class ChessBlock(torch.nn.Module):
 
@@ -47,12 +48,11 @@ class ConvBlock(torch.nn.Module):
 
         self.fullconv1      = torch.nn.Sequential(torch.nn.Conv2d(in_ch,conv_ch,kernel_size=kernel,stride=1,padding=kernel[0]//2 if pad else 0,bias=False),
                                                   torch.nn.BatchNorm2d(conv_ch),
-                                                  torch.nn.PReLU(conv_ch))
+                                                  torch.nn.GELU())
         
     def forward(self,x:torch.Tensor) ->torch.Tensor:
 
         return self.fullconv1(x)
-
 
 
 class ChessModel(torch.nn.Module):
@@ -194,49 +194,80 @@ class ChessModel2(torch.nn.Module):
 
 class ChessTransformer(nn.Module):
     
-    def __init__(self, emb_dim=256, num_layers=8, num_heads=8):
+    def __init__(self, n_embed=256, num_layers=8, n_conv_layer=8, num_heads=8):
         super().__init__()
-        self.n_embed            = emb_dim
-        self.board_embeddings   = nn.Embedding(13+16+2,emb_dim) #13 for each piece, 16 for castling possibilities, 2 for move
- 
-        encoder_layer           = nn.TransformerEncoderLayer(d_model=emb_dim, nhead=num_heads, batch_first=True,dim_feedforward=emb_dim*2,activation=torch.nn.functional.gelu)
-        self.transformer_layers = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.n_embed            = n_embed
+        self.board_embeddings   = nn.Embedding(13+16+2,n_embed) #13 for each piece, 16 for castling possibilities, 2 for move
+        self.board_state        = nn.Parameter(torch.randn(size=(64,n_embed)))
+        #self.learnable_state    = nn.Parameter(torch.randn(size=(1,1,n_embed)))
+        self.rank_emb           = nn.Embedding(8,n_embed)
+        self.file_emb           = nn.Embedding(8,n_embed)
 
-        self.final_seq_len      = 64 + 2
+        encoder_layer           = nn.TransformerEncoderLayer(d_model=n_embed, nhead=num_heads, batch_first=True,dim_feedforward=n_embed*2,activation=torch.nn.functional.gelu)
+        self.transformer_layers = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.conv_layers        = torch.nn.Sequential(OrderedDict({"_":ConvBlock(n_embed,n_embed) for _ in range(n_conv_layer)}))
+        #self.final_seq_len      = embed64 + 2 + 1 #squares + castling + turn + learned_input_token
+
+        
         self.value_head = nn.Sequential(
+            nn.Conv2d(n_embed,n_embed,(8,8),1,0),
             nn.Flatten(start_dim=1),
-            nn.Linear(self.final_seq_len*emb_dim, 1),
+            nn.Linear(self.n_embed, 1),
             nn.Tanh()
         )
 
         self.policy_head = nn.Sequential(
+            nn.Conv2d(n_embed,n_embed,(8,8),1,0),
             nn.Flatten(start_dim=1),
-            nn.Linear(self.final_seq_len * emb_dim, 1968),
-            nn.Softmax(dim=1)
+            nn.Linear(self.n_embed, 1968)
         )
 
-    def forward(self, input_ids:torch.Tensor,stage_one:bool=True):  # x: (B, 17, 8, 8)
+        #Init parameters (KaiMing)
+        #nn.init.normal_(self.learnable_state,mean=0.0,std=.02)
+        nn.init.normal_(self.board_state,mean=0.0,std=.02)
 
+    def forward(self, input_ids:torch.Tensor,stage_one:bool=False):  # x: (B, 17, 8, 8)
+
+        BS                              = input_ids.size(0)
         if stage_one:
 
-            return torch.nn.functional.softmax(torch.rand(size=(input_ids.size(0),1968),dtype=settings.DTYPE),dim=-1), torch.nn.functional.tanh(4*torch.rand(size=(1,1)))
+            return torch.nn.functional.softmax(torch.rand(size=(BS,1968),dtype=settings.DTYPE),dim=-1), torch.nn.functional.tanh(4*torch.rand(size=(1,1)))
         
-
         #Get piece embeddings 
         input_embeddings:torch.Tensor   = self.board_embeddings(input_ids)
+
+        #Add board embeddings 
+        game_board                      = torch.arange(64).repeat(BS,1)
+        ranks                           = game_board // 8 
+        files                           = game_board % 8
+        rank_emb                        = self.rank_emb(ranks)
+        file_emb                        = self.file_emb(files)
+        position_embedding              = rank_emb + file_emb
+        input_embeddings[:,:64,:]       += position_embedding
         
+
+        #input(f"learnable shape= {learnable_state.shape} - {input_embeddings.shape}")
+        #Append the learnable state token 
+        #learnable_state                 = self.learnable_state.repeat(input_ids.size(0),1,1)
+        #input_embeddings                = torch.cat([learnable_state,input_embeddings],dim=1)
 
         #Pass trhough transformer stack
         x                               = self.transformer_layers(input_embeddings)
-
+        
+        #Get the portion to pass into conv blocks 
+        x                               = x[:,:64,:].view(BS,8,8,x.size(-1)).permute(0,3,1,2)
+        
+        
+        x                               = self.conv_layers(x)
+        #Get just the state token 
         #Pass thorugh the policy and value heads 
-        policy                  = self.policy_head(x)
-        value                   = self.value_head(x)
+        policy                          = self.policy_head(x)
+        value                           = self.value_head(x)
 
         return policy, value
 
     def encode_fens(self,fen_batch:list[bulletchess.Board],as_torch=False) -> Union[torch.Tensor,numpy.array]:
-        as_numpy    =  numpy.asarray(list(map(data.to_64_len_str,fen_batch)),dtype=numpy.float32)
+        as_numpy    =  numpy.asarray(list(map(chess_data.to_64_len_str,fen_batch)),dtype=numpy.float32)
         if as_torch:
             return torch.from_numpy(as_numpy)
         else:
@@ -244,22 +275,9 @@ class ChessTransformer(nn.Module):
 
 
 if __name__ == "__main__":
-    import time
-    dev     = torch.device('cuda')
-    ty      = torch.bfloat16
-    torch.jit.enable_onednn_fusion(True)
-    torch.backends.cudnn.enabled= True
-    m       = ChessModel2().eval().to(dev).type(ty)
-    # m = torch.jit.trace(m, [torch.randn(size=(16,17,8,8),device=dev,dtype=ty)])
-    # # Invoking torch.jit.freeze
-    # m = torch.jit.freeze(m)
+    
+    m  = ChessTransformer(n_embed=settings.N_EMBED,num_layers=2,n_conv_layer=8,num_heads=4)
 
-    # with torch.no_grad():
-    #     t0  = time.time()
-    #     for _ in range(16384):
-    inv     = torch.randn(size=(16,17,8,8),device=dev,dtype=ty,requires_grad=False)
+    x,y    = m.forward(torch.randint(0,15,size=(8,66)).long(),stage_one=False)
 
-    p,v       = m.forward(inv)
-
-    print(f"out is {p.shape},{v.shape}s")
-    print(sum([p.numel() for p in m.parameters()]))
+    print(str(sum([p.numel() for p in m.parameters()])) + f"\n{x.shape}")

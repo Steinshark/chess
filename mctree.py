@@ -13,7 +13,7 @@ import utilities
 import numpy
 from collections import OrderedDict
 import settings
-
+import random
 
 #Creates an instance of a Monte-Carlo searchable Tree
 #   to develop an evaluation of a given position, the tree
@@ -126,8 +126,10 @@ class MCTree:
 
         #Get to bottom of tree via traversal algorithm 
         curnode             = self.root 
+
         while not curnode.is_leaf():
             curnode         = curnode.pick_best_child()
+            
             self.board.apply(curnode.move)
             self.curdepth   += 1
             #print(f"turn now {self.board.turn}")
@@ -177,7 +179,7 @@ class MCTree:
         self.curdepth       = 1 
 
         while not curnode.is_leaf():
-            curnode         = curnode.pick_best_child()
+            curnode         = curnode.pick_best_child() 
             self.board.apply(curnode.move)
             self.curdepth   += 1
             print(f"down in depth")
@@ -207,19 +209,41 @@ class MCTree:
 
     #Call to begin search down a root. The root may already have 
     #   children. Dirichlet noise is always added to root.  
-    def evaluate_root(self,n_iters=1000):
+    def evaluate_root(self,n_iters=1000,training=True):
 
         self.common_nodes:dict[str,Node]   = {}
         
-        #First iter will add Dirichlet noise to prior Ps of root children
-        self.perform_iter(initial=True)
+        #First iter will add Dirichlet noise to prior Ps of root children (only if training mode)
+        self.perform_iter(initial=training)
        
         #All resultant iters will not have dirichlet addition
         for _ in range(n_iters):
             self.perform_iter()
-                    
-        return {str(c.move):c.n_visits for c in self.root.children}
-    
+        
+        self.counts     = {str(c.move):c.n_visits for c in self.root.children}
+        
+        return
+
+
+    #Sample from the move counts given a temperature 
+    # Assumes that .evaluate_root was called to generate the 
+    # Counts     
+    def sample_move(self,temp:float=.7):
+        
+        assert self.counts, "self.counts does not exist - make sure you called 'evaluate_root'"
+
+        #assemble the visit counts as a np array
+        move_visits     = numpy.asarray(list(self.counts.values()))
+        parent_visits   = move_visits.sum()
+
+        #Calculate the distribution based on temp
+        temp_coeff      = 1 / temp
+        move_distr      = move_visits**temp_coeff / parent_visits**temp_coeff
+
+        next_move       = random.choices(list(self.counts.keys()),weights=move_distr,k=1)[0]
+        
+        return next_move
+
 
     #Begins the search down the root using Gumbel noise optimization instead of 
     #   adding Dirichlet noise.
@@ -337,7 +361,6 @@ class MCTree:
 
 #DEBUG purposes
 if __name__ == '__main__':
-    import random 
     from model import ChessTransformer
     dummy_model = ChessTransformer(emb_dim=settings.N_EMBED,num_layers=12,num_heads=8)
     dummy_model.eval()
